@@ -4,7 +4,7 @@ import '../widgets/custom_header.dart';
 import '../utils/constants.dart';
 import 'farmer_registration_screen.dart';
 import 'krishi_sakhi_screen.dart';
-
+import 'farmer_analysis_screen.dart'; // ✅ new import
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -24,24 +24,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   );
 
   void _onMenuSelected(String title) {
-  setState(() {
-    if (title == "Registration") {
-      _selectedContent = const RegistrationForm();
-    } else if (title == "Dashboard") {
-      _selectedContent = const Center(
-        child: Text(
-          "Main Content Area",
-          style: TextStyle(fontSize: 20),
-        ),
-      );
-    } else if (title == "Farmer Lists") {
-      _selectedContent = const KrishiSakhiScreen();
-    } else if (title == "Employee Type") {
-      _selectedContent = const Center(child: Text("Employee Type Page"));
-    }
-  });
-}
-
+    setState(() {
+      if (title == "Registration") {
+        _selectedContent = const RegistrationForm();
+      } else if (title == "Dashboard") {
+        _selectedContent = const Center(
+          child: Text(
+            "Main Content Area",
+            style: TextStyle(fontSize: 20),
+          ),
+        );
+      } else if (title == "Farmer Lists") {
+        _selectedContent = const KrishiSakhiScreen();
+      } else if (title == "Farmer Analysis List") {
+        _selectedContent = FarmerAnalysisScreen(); // ✅ yahan screen load
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

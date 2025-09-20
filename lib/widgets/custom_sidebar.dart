@@ -59,9 +59,9 @@ class CustomSidebar extends StatelessWidget {
                 },
               ),
               ListTile(
-                title: const Text("Employee Type"),
+                title: const Text("Farmer Analysis List"),
                 onTap: () {
-                  onMenuSelected("Employee Type");
+                  onMenuSelected("Farmer Analysis List");
                   if (!isDesktop) Navigator.pop(context);
                 },
               ),

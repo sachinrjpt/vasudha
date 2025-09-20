@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'storage_service.dart';
 
 class ApiService {
-  static const String baseUrl = "https://utthan.makemybizprojects.co.in/api";
+  static const String baseUrl = "https://vasudha.app/api";
 
   // 🔑 Login Employee API
   static Future<Map<String, dynamic>> loginEmployee(String login, String password) async {
@@ -54,8 +54,8 @@ class ApiService {
     }
   }
 
-  // 📝 Store Employee API (unchanged behaviour, added Accept header)
-  /// ✅ Store Employee (aligned with Laravel apiStoreEmployee)
+  
+  // ✅ Store Employee (aligned with Laravel apiStoreEmployee)
   static Future<Map<String, dynamic>> storeEmployee({
     required String name,
     required String phone,
@@ -386,6 +386,41 @@ static Future<Map<String, dynamic>> updateEmployee({
     return {"ok": false, "message": "Error: $e"};
   }
 }
+
+// 📌 Delete Employee API
+static Future<Map<String, dynamic>> deleteEmployee(String employeeId) async {
+  final url = Uri.parse("$baseUrl/employee/$employeeId");
+
+  try {
+    final token = await StorageService.getToken();
+
+    final response = await http.delete(
+      url,
+      headers: {
+        "Accept": "application/json",
+        if (token != null) "Authorization": "Bearer $token",
+      },
+    ).timeout(const Duration(seconds: 20));
+
+    final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+
+    print("📌 DELETE EMPLOYEE ($employeeId) Response (${response.statusCode}): ${response.body}");
+
+    if (response.statusCode == 200 && data["status"]?.toString().toLowerCase() == "success") {
+      return {"ok": true, "message": data["message"] ?? "Employee deleted successfully"};
+    } else if (response.statusCode == 401) {
+      return {"ok": false, "message": "Unauthorized. Please login again."};
+    } else {
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to delete employee",
+      };
+    }
+  } catch (e) {
+    return {"ok": false, "message": "Error: $e"};
+  }
+}
+
 
 
 

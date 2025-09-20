@@ -7,6 +7,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart'; // for kIsWeb
+import 'farmer_wizard.dart'; // ✅ NEW
+
 
 
 class KrishiSakhiScreen extends StatefulWidget {
@@ -105,6 +107,47 @@ Future<void> _pickImage(
       }).toList();
     });
   }
+
+  void _deleteEmployee(BuildContext context, String employeeId) async {
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Confirm Delete"),
+      content: const Text("Are you sure you want to delete this employee?"),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text("Cancel"),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text("Delete"),
+        ),
+      ],
+    ),
+  );
+
+  if (confirm != true) return;
+
+  final result = await ApiService.deleteEmployee(employeeId);
+
+  if (result["ok"] == true) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result["message"] ?? "Deleted successfully")),
+    );
+
+    setState(() {
+      _sakhiList.removeWhere((emp) => emp["employee_id"].toString() == employeeId);
+      _filteredList.removeWhere((emp) => emp["employee_id"].toString() == employeeId);
+    });
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result["message"] ?? "Failed to delete")),
+    );
+  }
+}
+
 
 void _showEditDialog(BuildContext context, Map<String, dynamic> item) {
   final TextEditingController nameController =
@@ -452,9 +495,7 @@ Widget _dropdownField(String label, String? value, List<String> options,
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
-      body: _sakhiList.isEmpty
-          ? const Center(child: CircularProgressIndicator()) // ✅ Loader
-          : SingleChildScrollView(
+        body: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,32 +612,40 @@ Widget _dropdownField(String label, String? value, List<String> options,
                           DataCell(Text(item["email"] ?? "-")),
                           DataCell(Text(item["designation"] ?? "-")),
                           DataCell(Text(item["status"] ?? "-")),
-                          DataCell(Row(
-  children: [
-    IconButton(
-      icon: const Icon(Icons.edit, color: Colors.blue),
-      onPressed: () {
-        _showEditDialog(context, item); // 🔹 Pass row data
-      },
-    ),
-    const SizedBox(width: 8),
-    IconButton(
-      icon: const Icon(Icons.delete, color: Colors.red),
-      onPressed: () {
-        // 🔹 Later we will add delete API
-        print("Delete ${item["employee_id"]}");
-      },
-    ),
-    const SizedBox(width: 8),
-    IconButton(
-      icon: const Icon(Icons.visibility, color: Colors.green),
-      onPressed: () {
-        // 🔹 Later we will add view details
-        print("View ${item["employee_id"]}");
-      },
-    ),
-  ],
-)),
+                          DataCell(
+  Row(
+    children: [
+      // ✏️ Edit Button
+      IconButton(
+        icon: const Icon(Icons.edit, color: Colors.blue),
+        onPressed: () {
+          _showEditDialog(context, item); // 🔹 Pass row data
+        },
+      ),
+
+      const SizedBox(width: 8),
+
+      // 📊 Analysis Button (linked with FarmerWizard)
+      IconButton(
+  icon: const Icon(Icons.analytics, color: Colors.green),
+  onPressed: () async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const FarmerWizard(),
+      ),
+    );
+
+    if (result == true) {
+      _fetchData(); // ✅ Refresh after Finish
+    }
+  },
+),
+
+    ],
+  ),
+),
+
 
                         ]);
                       }),
