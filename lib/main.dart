@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 import 'screens/farmer_registration_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'utils/constants.dart';
 import 'screens/dashboard_screen.dart';
 import 'services/api_service.dart';   // ✅ import your API service
+import 'services/master_service.dart'; // ✅ add this import
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 🔴 हर बार restart पर logout करने के लिए token clear कर दो
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.clear();
+
   runApp(const VasudhaApp());
 }
+
 
 class VasudhaApp extends StatelessWidget {
   const VasudhaApp({super.key});
@@ -53,16 +62,20 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => isLoading = false);
 
     if (res["ok"] == true) {
-      // ✅ Success
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res["message"] ?? "Login successful")),
-      );
+  // ✅ Success
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(res["message"] ?? "Login successful")),
+  );
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const DashboardScreen()),
-      );
-    } else {
+  // 🔄 Load masters after login success
+  await MasterService.reload();
+
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (context) => const DashboardScreen()),
+  );
+}
+ else {
       // ❌ Error
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res["message"] ?? "Login failed")),

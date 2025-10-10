@@ -632,7 +632,10 @@ Widget _dropdownField(String label, String? value, List<String> options,
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const FarmerWizard(),
+        builder: (_) => FarmerWizard(
+  farmerId: item["id"].toString(),
+),
+
       ),
     );
 
