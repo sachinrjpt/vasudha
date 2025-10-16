@@ -179,46 +179,32 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   Future<void> _exportToPdf() async {
     try {
       setState(() => _saving = true);
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 300)); // wait for UI
 
-      // ✅ Capture from visible dashboard (no offscreen rendering)
       final boundary =
-          _dashboardKey.currentContext!.findRenderObject()
-              as RenderRepaintBoundary;
+          _dashboardKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+      if (boundary == null) {
+        throw Exception("Dashboard not ready yet. Please try again.");
+      }
+
       final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      final imageBytes = byteData!.buffer.asUint8List();
+      if (byteData == null) throw Exception("Unable to get image bytes.");
+      final imageBytes = byteData.buffer.asUint8List();
 
       final pdf = pw.Document();
       final pdfImage = pw.MemoryImage(imageBytes);
+      pdf.addPage(pw.Page(build: (_) => pw.Center(child: pw.Image(pdfImage))));
 
-      // ✅ Determine if content needs multiple pages
-      final imgInfo = await decodeImageFromList(imageBytes);
-      final imgWidth = imgInfo.width.toDouble();
-      final imgHeight = imgInfo.height.toDouble();
-
-      final pageWidth = PdfPageFormat.a4.width;
-      final pageHeight = PdfPageFormat.a4.height;
-      final scale = pageWidth / imgWidth;
-      final totalPages = (imgHeight * scale / pageHeight).ceil();
-
-      for (int i = 0; i < totalPages; i++) {
-        final yOffset = -(pageHeight / scale) * i;
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: pw.EdgeInsets.zero,
-            build: (context) => pw.ClipRect(
-              child: pw.Transform.translate(
-                offset: PdfPoint(0, yOffset),
-                child: pw.Image(pdfImage, fit: pw.BoxFit.fitWidth),
-              ),
-            ),
-          ),
+      if (kIsWeb) {
+        await Printing.sharePdf(
+          bytes: await pdf.save(),
+          filename: 'dashboard.pdf',
         );
+      } else {
+        await Printing.layoutPdf(onLayout: (_) async => pdf.save());
       }
-
-      await Printing.layoutPdf(onLayout: (format) async => pdf.save());
     } catch (e, st) {
       debugPrint("❌ PDF export failed: $e\n$st");
       if (context.mounted) {
@@ -871,10 +857,10 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         ],
       ),
 
-      body: Screenshot(
-        controller: _screenshotController,
-        child: RepaintBoundary(
-          key: _dashboardKey,
+      body: RepaintBoundary(
+        key: _dashboardKey,
+        child: Screenshot(
+          controller: _screenshotController,
           child: SingleChildScrollView(
             child: Column(
               children: [
