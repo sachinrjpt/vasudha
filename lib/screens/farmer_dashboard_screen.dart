@@ -14,6 +14,8 @@ import 'package:pdf/pdf.dart'; // ✅ Add this line
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 
@@ -176,85 +178,27 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
   Future<void> _exportToPdf() async {
     try {
-      await Future.delayed(const Duration(milliseconds: 400));
+      setState(() => _saving = true);
+      await Future.delayed(const Duration(milliseconds: 500));
 
-      // ✅ Create an off-screen widget with unconstrained height
-      final exportWidget = MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Material(
-          child: Directionality(
-            textDirection: TextDirection.ltr,
-            child: Container(
-              color: Colors.white,
-              padding: const EdgeInsets.all(16),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _farmerHeaderSection(),
-                        const SizedBox(height: 8),
-                        _chartsSection(),
-                        const SizedBox(height: 8),
-                        buildEditableTable(
-                          title: "Farmer Metrics",
-                          data: metrics ?? {},
-                          isEditable: false,
-                        ),
-                        buildEditableTable(
-                          title: "Environmental Metrics",
-                          data: environmental ?? {},
-                          isEditable: false,
-                        ),
-                        buildEditableTable(
-                          title: "Soil Health",
-                          data: soilHealth ?? {},
-                          isEditable: false,
-                        ),
-                        buildEditableTable(
-                          title: "Climate Change Mitigation",
-                          data: climateChange ?? {},
-                          isEditable: false,
-                        ),
-                        const SizedBox(height: 30),
-                        Center(
-                          child: Text(
-                            'Report generated from Vasudha Farmer Dashboard',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      );
-
-      // ✅ Capture FULL HEIGHT instead of 1080p viewport
-      final imageBytes = await _screenshotController.captureFromWidget(
-        exportWidget,
-        delay: const Duration(milliseconds: 400),
-        pixelRatio: 3.0,
-        targetSize: const Size(1920, double.infinity), // 👈 FULL HEIGHT CAPTURE
-      );
-
-      // Decode to get size
-      final imgInfo = await decodeImageFromList(imageBytes);
-      final imgHeight = imgInfo.height.toDouble();
-      final imgWidth = imgInfo.width.toDouble();
+      // ✅ Capture from visible dashboard (no offscreen rendering)
+      final boundary =
+          _dashboardKey.currentContext!.findRenderObject()
+              as RenderRepaintBoundary;
+      final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      final imageBytes = byteData!.buffer.asUint8List();
 
       final pdf = pw.Document();
-      final image = pw.MemoryImage(imageBytes);
+      final pdfImage = pw.MemoryImage(imageBytes);
 
-      final pageHeight = PdfPageFormat.a4.height;
+      // ✅ Determine if content needs multiple pages
+      final imgInfo = await decodeImageFromList(imageBytes);
+      final imgWidth = imgInfo.width.toDouble();
+      final imgHeight = imgInfo.height.toDouble();
+
       final pageWidth = PdfPageFormat.a4.width;
+      final pageHeight = PdfPageFormat.a4.height;
       final scale = pageWidth / imgWidth;
       final totalPages = (imgHeight * scale / pageHeight).ceil();
 
@@ -267,7 +211,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
             build: (context) => pw.ClipRect(
               child: pw.Transform.translate(
                 offset: PdfPoint(0, yOffset),
-                child: pw.Image(image, fit: pw.BoxFit.fitWidth),
+                child: pw.Image(pdfImage, fit: pw.BoxFit.fitWidth),
               ),
             ),
           ),
@@ -275,12 +219,15 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       }
 
       await Printing.layoutPdf(onLayout: (format) async => pdf.save());
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint("❌ PDF export failed: $e\n$st");
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text("❌ PDF export failed: $e")));
       }
+    } finally {
+      if (context.mounted) setState(() => _saving = false);
     }
   }
 
