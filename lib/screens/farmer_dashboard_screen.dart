@@ -14,10 +14,12 @@ import 'package:pdf/pdf.dart'; // ✅ Add this line
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 import 'dart:ui' as ui;
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:share_plus/share_plus.dart';
 
 class FarmerDashboardScreen extends StatefulWidget {
   final int farmerId;
@@ -38,7 +40,6 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   Map<String, dynamic>? soilHealth;
   Map<String, dynamic>? climateChange;
 
-  final ScreenshotController _screenshotController = ScreenshotController();
   final GlobalKey _dashboardKey = GlobalKey();
 
   // Editable fields we allow to push to server
@@ -178,43 +179,411 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
   Future<void> _exportToPdf() async {
     try {
-      setState(() => _saving = true);
-      await Future.delayed(const Duration(milliseconds: 300)); // wait for UI
-
-      final boundary =
-          _dashboardKey.currentContext?.findRenderObject()
-              as RenderRepaintBoundary?;
-      if (boundary == null) {
-        throw Exception("Dashboard not ready yet. Please try again.");
-      }
-
-      final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) throw Exception("Unable to get image bytes.");
-      final imageBytes = byteData.buffer.asUint8List();
-
       final pdf = pw.Document();
-      final pdfImage = pw.MemoryImage(imageBytes);
-      pdf.addPage(pw.Page(build: (_) => pw.Center(child: pw.Image(pdfImage))));
 
-      if (kIsWeb) {
-        await Printing.sharePdf(
-          bytes: await pdf.save(),
-          filename: 'dashboard.pdf',
-        );
-      } else {
-        await Printing.layoutPdf(onLayout: (_) async => pdf.save());
+      // ✅ Load Unicode fonts (Noto Sans)
+      final regularFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
+      );
+      final boldFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
+      );
+
+      // ✅ Load emoji-supporting font (to render 📞 🌍 📈 etc.)
+      final emojiFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoColorEmoji.ttf"),
+      );
+
+      // ✅ Combine fonts with emoji fallback
+      final theme = pw.ThemeData.withFont(
+        base: regularFont,
+        bold: boldFont,
+        fontFallback: [emojiFont],
+      );
+
+      // ✅ Load farmer image (if available)
+      pw.ImageProvider? farmerImage;
+      final imageUrl =
+          farmer?['profile_image'] != null &&
+              farmer!['profile_image'].toString().isNotEmpty
+          ? 'https://vasudha.app/${farmer!['profile_image']}'
+          : null;
+
+      if (imageUrl != null) {
+        try {
+          final response = await http.get(Uri.parse(imageUrl));
+          if (response.statusCode == 200) {
+            farmerImage = pw.MemoryImage(response.bodyBytes);
+          }
+        } catch (_) {}
       }
-    } catch (e, st) {
-      debugPrint("❌ PDF export failed: $e\n$st");
+
+      // ✅ Capture chart widgets as images
+      final charts = await _captureChartsAsImages();
+
+      // ✅ Build multi-page PDF (unchanged layout, but emoji-capable now)
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          theme: theme, // 👈 apply emoji fallback theme here
+          build: (context) => [
+            _buildPdfHeader(farmerImage, boldFont),
+            pw.SizedBox(height: 20),
+
+            pw.Text(
+              "📈 Dashboard Charts", // 👈 emoji will now render properly
+              style: pw.TextStyle(
+                font: boldFont,
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.green800,
+              ),
+            ),
+            pw.SizedBox(height: 10),
+
+            // ✅ Charts section
+            for (var img in charts)
+              pw.Container(
+                margin: const pw.EdgeInsets.only(bottom: 12),
+                height: 200,
+                child: pw.Image(
+                  pw.MemoryImage(img),
+                  fit: pw.BoxFit.contain,
+                  alignment: pw.Alignment.center,
+                ),
+              ),
+
+            pw.Divider(),
+
+            // ✅ Tables (same as before)
+            _buildPdfTable('Farmer Metrics', metrics, boldFont),
+            pw.SizedBox(height: 15),
+            _buildPdfTable('Environmental Metrics', environmental, boldFont),
+            pw.SizedBox(height: 15),
+            _buildPdfTable('Soil Health', soilHealth, boldFont),
+            pw.SizedBox(height: 15),
+            _buildPdfTable(
+              'Climate Change Mitigation',
+              climateChange,
+              boldFont,
+            ),
+          ],
+          footer: (context) => pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Page ${context.pageNumber} of ${context.pagesCount}',
+              style: pw.TextStyle(font: regularFont, fontSize: 9),
+            ),
+          ),
+        ),
+      );
+
+      // ✅ Save PDF bytes
+      final pdfBytes = await pdf.save();
+
+      // ✅ Save locally & trigger download/share
+      final fileName = "Farmer_Report_${farmer?['name'] ?? 'Unknown'}.pdf";
+
+      // For Mobile/Desktop
+      await Printing.sharePdf(bytes: pdfBytes, filename: fileName);
+
+      // (Optional) For Web:
+      // import 'dart:html' as html;
+      // final blob = html.Blob([pdfBytes], 'application/pdf');
+      // final url = html.Url.createObjectUrlFromBlob(blob);
+      // final anchor = html.AnchorElement(href: url)
+      //   ..setAttribute("download", fileName)
+      //   ..click();
+      // html.Url.revokeObjectUrl(url);
+    } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text("❌ PDF export failed: $e")));
+        ).showSnackBar(SnackBar(content: Text('❌ PDF export failed: $e')));
       }
-    } finally {
-      if (context.mounted) setState(() => _saving = false);
     }
+  }
+
+  Future<void> _exportToPdfAndShareOnWhatsApp() async {
+    try {
+      final pdf = pw.Document();
+
+      // 🔤 Load fonts (same as existing)
+      final regularFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
+      );
+      final boldFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
+      );
+      final emojiFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoColorEmoji.ttf"),
+      );
+      final theme = pw.ThemeData.withFont(
+        base: regularFont,
+        bold: boldFont,
+        fontFallback: [emojiFont],
+      );
+
+      // 🖼️ Load farmer image (optional)
+      pw.ImageProvider? farmerImage;
+      final imageUrl =
+          farmer?['profile_image'] != null &&
+              farmer!['profile_image'].toString().isNotEmpty
+          ? 'https://vasudha.app/${farmer!['profile_image']}'
+          : null;
+
+      if (imageUrl != null) {
+        try {
+          final response = await http.get(Uri.parse(imageUrl));
+          if (response.statusCode == 200) {
+            farmerImage = pw.MemoryImage(response.bodyBytes);
+          }
+        } catch (_) {}
+      }
+
+      // 📊 Add 1-page PDF (you can keep charts if you want)
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          theme: theme,
+          build: (context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                "👨‍🌾 Farmer Report",
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text("Name: ${farmer?['name'] ?? 'N/A'}"),
+              pw.Text("📞 Phone: ${farmer?['phone'] ?? '-'}"),
+              pw.SizedBox(height: 20),
+              pw.Text("This is your detailed farmer dashboard report."),
+            ],
+          ),
+        ),
+      );
+
+      // 💾 Save PDF locally
+      final bytes = await pdf.save();
+      final dir = await getTemporaryDirectory();
+      final file = File(
+        '${dir.path}/Farmer_Report_${farmer?['name'] ?? 'Unknown'}.pdf',
+      );
+      await file.writeAsBytes(bytes);
+
+      // 💬 Message text
+      final name = farmer?['name'] ?? 'Farmer';
+      final phone = farmer?['phone'] ?? '-';
+      final msg =
+          '''
+👨‍🌾 Farmer Dashboard - $name
+📞 Mobile: $phone
+📄 Please find attached your PDF report.
+''';
+
+      // 🟢 Share via WhatsApp (or share dialog)
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: msg,
+        subject: 'Farmer Dashboard Report',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('❌ Failed to share PDF: $e')));
+      }
+    }
+  }
+
+  Future<List<Uint8List>> _captureChartsAsImages() async {
+    final List<Uint8List> chartImages = [];
+
+    try {
+      // ✅ Get your real chart data (same logic as in _chartsSection)
+      final yieldArr = _toList(
+        metrics?['Yield (kg/acre)'] ?? metrics?['Yield'] ?? 0,
+      );
+      final priceArr = _toList(
+        metrics?['Price per KG (₹)'] ?? metrics?['Price per KG'] ?? 0,
+      );
+      final netIncomeArr = _toList(
+        metrics?['Net Income (₹/acre)'] ??
+            metrics?['Net Income'] ??
+            [0, 0, 0, 0],
+      );
+
+      final waterSavedRaw =
+          environmental?['Water Saved per acre'] ??
+          environmental?['Water Saved (liters/acre)'] ??
+          environmental?['Water Saved (liters)'] ??
+          environmental?['Water Saved'];
+
+      List<double> waterSavedArr = [];
+      if (waterSavedRaw is num) {
+        waterSavedArr = [
+          0,
+          waterSavedRaw.toDouble(),
+          waterSavedRaw.toDouble(),
+          waterSavedRaw.toDouble(),
+        ];
+      } else {
+        waterSavedArr = _toList(waterSavedRaw);
+      }
+
+      final socArr = _toList(
+        soilHealth?['Soil Organic Carbon (SOC) Gain (kg/acre)'],
+      );
+      final co2Arr = _toList(climateChange?['CO₂e Sequestered (kg/acre)']);
+
+      // ✅ Create same chart widgets used in the dashboard
+      final chartWidgets = <Widget>[
+        _lineChartCard('Yield (kg/acre)', yieldArr, Colors.orange),
+        _lineChartCard('Price per KG (₹)', priceArr, Colors.pink),
+        _lineChartCard('Net Income (₹/acre)', netIncomeArr, Colors.teal),
+        _barChartCard(
+          'Water Saved (liters/acre)',
+          waterSavedArr,
+          Colors.lightBlue,
+        ),
+        _barChartCard(
+          'Soil Organic Carbon (SOC) Gain (kg/acre)',
+          socArr,
+          Colors.purple,
+        ),
+        _barChartCard('CO₂e Sequestered (kg/acre)', co2Arr, Colors.redAccent),
+      ];
+
+      // ✅ Capture each chart as an image
+      for (var chart in chartWidgets) {
+        final bytes = await _captureWidgetAsImage(chart);
+        if (bytes != null) chartImages.add(bytes);
+      }
+    } catch (e) {}
+
+    return chartImages;
+  }
+
+  Future<Uint8List?> _captureWidgetAsImage(Widget widget) async {
+    try {
+      final controller = ScreenshotController();
+      final bytes = await controller.captureFromWidget(
+        MediaQuery(
+          data: const MediaQueryData(),
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: Material(
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: widget,
+              ),
+            ),
+          ),
+        ),
+        pixelRatio: 1.0,
+      );
+      return bytes;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  pw.Widget _buildPdfHeader(pw.ImageProvider? image, pw.Font boldFont) {
+    final titleStyle = pw.TextStyle(
+      font: boldFont,
+      fontSize: 14,
+      fontWeight: pw.FontWeight.bold,
+      color: PdfColors.green800,
+    );
+    final normalStyle = const pw.TextStyle(fontSize: 10);
+
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        if (image != null)
+          pw.Container(
+            width: 60,
+            height: 60,
+            decoration: pw.BoxDecoration(
+              shape: pw.BoxShape.circle,
+              image: pw.DecorationImage(image: image, fit: pw.BoxFit.cover),
+            ),
+          ),
+        pw.SizedBox(width: 12),
+        pw.Expanded(
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(farmer?['name'] ?? 'N/A', style: titleStyle),
+              pw.Text('📞 ${farmer?['phone'] ?? '-'}', style: normalStyle),
+              pw.Text(
+                '🌍 ${farmer?['state'] ?? '-'}, ${farmer?['district'] ?? '-'}',
+                style: normalStyle,
+              ),
+              pw.Text(
+                'Plot ID: ${farmer?['plot_id'] ?? '-'}',
+                style: normalStyle,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfTable(
+    String title,
+    Map<String, dynamic>? data,
+    pw.Font boldFont,
+  ) {
+    if (data == null || data.isEmpty) {
+      return pw.Container();
+    }
+
+    final headers = ['Metric', 'Current', 'Year 1', 'Year 2', 'Year 3'];
+    final rows = data.entries.map((entry) {
+      final values = entry.value is List
+          ? (entry.value as List)
+          : [entry.value?.toString() ?? '-', '-', '-', '-'];
+      return [entry.key, ...values.map((v) => v?.toString() ?? '-')];
+    }).toList();
+
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(bottom: 16),
+      child: pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            title,
+            style: pw.TextStyle(
+              font: boldFont,
+              fontSize: 12,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.green700,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Table.fromTextArray(
+            headers: headers,
+            data: rows,
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.green100),
+            headerStyle: pw.TextStyle(
+              font: boldFont,
+              fontWeight: pw.FontWeight.bold,
+            ),
+            cellStyle: const pw.TextStyle(fontSize: 9),
+            cellAlignment: pw.Alignment.centerLeft,
+            headerAlignment: pw.Alignment.centerLeft,
+            border: null,
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _shareOnWhatsApp() async {
@@ -643,13 +1012,14 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
               child: Column(
                 children: [
                   ElevatedButton.icon(
-                    onPressed: _share,
+                    onPressed: _exportToPdfAndShareOnWhatsApp,
                     icon: const Icon(FontAwesomeIcons.whatsapp),
                     label: const Text('Share'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                     ),
                   ),
+
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: _exportToPdf,
@@ -859,169 +1229,164 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
       body: RepaintBoundary(
         key: _dashboardKey,
-        child: Screenshot(
-          controller: _screenshotController,
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                // Farmer Card
-                Card(
-                  elevation: 3,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 40,
-                          backgroundImage:
-                              (farmer?['profile_image'] != null &&
-                                  farmer!['profile_image']
-                                      .toString()
-                                      .isNotEmpty)
-                              ? NetworkImage(
-                                  'https://vasudha.app/${farmer!['profile_image']}',
-                                )
-                              : const AssetImage('assets/logo.png')
-                                    as ImageProvider,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // Farmer Card
+              Card(
+                elevation: 3,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 40,
+                        backgroundImage:
+                            (farmer?['profile_image'] != null &&
+                                farmer!['profile_image'].toString().isNotEmpty)
+                            ? NetworkImage(
+                                'https://vasudha.app/${farmer!['profile_image']}',
+                              )
+                            : const AssetImage('assets/logo.png')
+                                  as ImageProvider,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              farmer?['name'] ?? 'N/A',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text('📞 ${farmer?['phone'] ?? '-'}'),
+                            Text(
+                              '🌍 ${farmer?['state'] ?? '-'} , ${farmer?['district'] ?? '-'}',
+                            ),
+                            Text('Plot ID: ${farmer?['plot_id'] ?? '-'}'),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                farmer?['name'] ?? 'N/A',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green,
-                                ),
+                      ),
+                      SizedBox(
+                        width: 140,
+                        child: Column(
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: _share,
+                              icon: const Icon(FontAwesomeIcons.whatsapp),
+                              label: const Text('Share'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
                               ),
-                              const SizedBox(height: 6),
-                              Text('📞 ${farmer?['phone'] ?? '-'}'),
-                              Text(
-                                '🌍 ${farmer?['state'] ?? '-'} , ${farmer?['district'] ?? '-'}',
-                              ),
-                              Text('Plot ID: ${farmer?['plot_id'] ?? '-'}'),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(height: 8),
+                            ElevatedButton.icon(
+                              onPressed: _exportToPdf,
+                              icon: const Icon(Icons.picture_as_pdf),
+                              label: const Text('Export'),
+                            ),
+                          ],
                         ),
-                        SizedBox(
-                          width: 140,
-                          child: Column(
-                            children: [
-                              ElevatedButton.icon(
-                                onPressed: _share,
-                                icon: const Icon(FontAwesomeIcons.whatsapp),
-                                label: const Text('Share'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              ElevatedButton.icon(
-                                onPressed: _exportToPdf,
-                                icon: const Icon(Icons.picture_as_pdf),
-                                label: const Text('Export'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
 
-                // Charts group (3 on top row)
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    SizedBox(
-                      width: isWide ? (width - 64) / 3 : double.infinity,
-                      child: _lineChartCard(
-                        'Yield (kg/acre)',
-                        yieldArr,
-                        Colors.orange,
-                      ),
+              // Charts group (3 on top row)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  SizedBox(
+                    width: isWide ? (width - 64) / 3 : double.infinity,
+                    child: _lineChartCard(
+                      'Yield (kg/acre)',
+                      yieldArr,
+                      Colors.orange,
                     ),
-                    SizedBox(
-                      width: isWide ? (width - 64) / 3 : double.infinity,
-                      child: _lineChartCard(
-                        'Price per KG (₹)',
-                        priceArr,
-                        Colors.pink,
-                      ),
-                    ),
-                    SizedBox(
-                      width: isWide ? (width - 64) / 3 : double.infinity,
-                      child: _lineChartCard(
-                        'Net Income (₹/acre)',
-                        netIncomeArr,
-                        Colors.teal,
-                      ),
-                    ),
-                    SizedBox(
-                      width: isWide ? (width - 64) / 3 : double.infinity,
-                      child: _barChartCard(
-                        'Water Saved (liters/acre)',
-                        waterSavedArr,
-                        Colors.lightBlue,
-                      ),
-                    ),
-                    SizedBox(
-                      width: isWide ? (width - 64) / 3 : double.infinity,
-                      child: _barChartCard(
-                        'Soil Organic Carbon (SOC) Gain (kg/acre)',
-                        socArr,
-                        Colors.purple,
-                      ),
-                    ),
-                    SizedBox(
-                      width: isWide ? (width - 64) / 3 : double.infinity,
-                      child: _barChartCard(
-                        'CO₂e Sequestered (kg/acre)',
-                        co2Arr,
-                        Colors.redAccent,
-                      ),
-                    ),
-                  ],
-                ),
-
-                // ✅ Replace old metric blocks with new editable table layout
-                const SizedBox(height: 8),
-
-                buildEditableTable(
-                  title: "Farmer Metrics",
-                  data: metrics ?? {},
-                  isEditable: true,
-                ),
-                buildEditableTable(
-                  title: "Environmental Metrics",
-                  data: environmental ?? {},
-                  isEditable: true,
-                ),
-                buildEditableTable(
-                  title: "Soil Health",
-                  data: soilHealth ?? {},
-                  isEditable: false,
-                ),
-                buildEditableTable(
-                  title: "Climate Change Mitigation",
-                  data: climateChange ?? {},
-                  isEditable: false,
-                ),
-
-                const SizedBox(height: 40),
-                Center(
-                  child: Text(
-                    'Tip: Double-tap a cell to edit & auto-save',
-                    style: TextStyle(color: Colors.grey[700]),
                   ),
+                  SizedBox(
+                    width: isWide ? (width - 64) / 3 : double.infinity,
+                    child: _lineChartCard(
+                      'Price per KG (₹)',
+                      priceArr,
+                      Colors.pink,
+                    ),
+                  ),
+                  SizedBox(
+                    width: isWide ? (width - 64) / 3 : double.infinity,
+                    child: _lineChartCard(
+                      'Net Income (₹/acre)',
+                      netIncomeArr,
+                      Colors.teal,
+                    ),
+                  ),
+                  SizedBox(
+                    width: isWide ? (width - 64) / 3 : double.infinity,
+                    child: _barChartCard(
+                      'Water Saved (liters/acre)',
+                      waterSavedArr,
+                      Colors.lightBlue,
+                    ),
+                  ),
+                  SizedBox(
+                    width: isWide ? (width - 64) / 3 : double.infinity,
+                    child: _barChartCard(
+                      'Soil Organic Carbon (SOC) Gain (kg/acre)',
+                      socArr,
+                      Colors.purple,
+                    ),
+                  ),
+                  SizedBox(
+                    width: isWide ? (width - 64) / 3 : double.infinity,
+                    child: _barChartCard(
+                      'CO₂e Sequestered (kg/acre)',
+                      co2Arr,
+                      Colors.redAccent,
+                    ),
+                  ),
+                ],
+              ),
+
+              // ✅ Replace old metric blocks with new editable table layout
+              const SizedBox(height: 8),
+
+              buildEditableTable(
+                title: "Farmer Metrics",
+                data: metrics ?? {},
+                isEditable: true,
+              ),
+              buildEditableTable(
+                title: "Environmental Metrics",
+                data: environmental ?? {},
+                isEditable: true,
+              ),
+              buildEditableTable(
+                title: "Soil Health",
+                data: soilHealth ?? {},
+                isEditable: false,
+              ),
+              buildEditableTable(
+                title: "Climate Change Mitigation",
+                data: climateChange ?? {},
+                isEditable: false,
+              ),
+
+              const SizedBox(height: 40),
+              Center(
+                child: Text(
+                  'Tip: Double-tap a cell to edit & auto-save',
+                  style: TextStyle(color: Colors.grey[700]),
                 ),
-                const SizedBox(height: 30),
-              ],
-            ),
+              ),
+              const SizedBox(height: 30),
+            ],
           ),
         ),
       ),
