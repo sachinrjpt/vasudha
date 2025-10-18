@@ -14,6 +14,7 @@ import 'package:pdf/pdf.dart'; // ✅ Add this line
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:whatsapp_share2/whatsapp_share2.dart';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -301,6 +302,85 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('❌ PDF export failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _exportAndShareToWhatsApp() async {
+    try {
+      // ✅ Reuse your existing export logic (generate same PDF)
+      final pdf = pw.Document();
+
+      // Load fonts (same as in your export function)
+      final regularFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
+      );
+      final boldFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
+      );
+      final emojiFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoColorEmoji.ttf"),
+      );
+      final theme = pw.ThemeData.withFont(
+        base: regularFont,
+        bold: boldFont,
+        fontFallback: [emojiFont],
+      );
+
+      // ✅ Build PDF (copy your current export content)
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          theme: theme,
+          build: (context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                "👨‍🌾 Farmer Report",
+                style: pw.TextStyle(
+                  fontSize: 22,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text("Name: ${farmer?['name'] ?? 'N/A'}"),
+              pw.Text("📞 Phone: ${farmer?['phone'] ?? '-'}"),
+              pw.SizedBox(height: 16),
+              pw.Text(
+                "Report generated automatically from the Farmer Dashboard.",
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // 💾 Save PDF temporarily
+      final bytes = await pdf.save();
+      final dir = await getTemporaryDirectory();
+      final filePath =
+          '${dir.path}/Farmer_Report_${farmer?['name'] ?? 'Unknown'}.pdf';
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
+
+      // 🟢 WhatsApp share message
+      final msg =
+          '''
+👨‍🌾 Farmer Report - ${farmer?['name'] ?? 'Farmer'}
+📞 ${farmer?['phone'] ?? '-'}
+📄 Attached is your latest report from MakemyBiz.
+''';
+
+      // ✅ Share file to WhatsApp
+      await WhatsappShare.shareFile(
+        text: msg,
+        phone: "", // optional: add number, e.g. '+919876543210'
+        filePath: [filePath],
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Failed to share on WhatsApp: $e')),
+        );
       }
     }
   }
@@ -1012,7 +1092,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
               child: Column(
                 children: [
                   ElevatedButton.icon(
-                    onPressed: _exportToPdfAndShareOnWhatsApp,
+                    onPressed: _exportAndShareToWhatsApp,
                     icon: const Icon(FontAwesomeIcons.whatsapp),
                     label: const Text('Share'),
                     style: ElevatedButton.styleFrom(
