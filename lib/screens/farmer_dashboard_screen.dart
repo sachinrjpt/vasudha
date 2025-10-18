@@ -306,180 +306,6 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
     }
   }
 
-  Future<void> _exportAndShareToWhatsApp() async {
-    try {
-      // ✅ Reuse your existing export logic (generate same PDF)
-      final pdf = pw.Document();
-
-      // Load fonts (same as in your export function)
-      final regularFont = pw.Font.ttf(
-        await rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
-      );
-      final boldFont = pw.Font.ttf(
-        await rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
-      );
-      final emojiFont = pw.Font.ttf(
-        await rootBundle.load("assets/fonts/NotoColorEmoji.ttf"),
-      );
-      final theme = pw.ThemeData.withFont(
-        base: regularFont,
-        bold: boldFont,
-        fontFallback: [emojiFont],
-      );
-
-      // ✅ Build PDF (copy your current export content)
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          theme: theme,
-          build: (context) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                "👨‍🌾 Farmer Report",
-                style: pw.TextStyle(
-                  fontSize: 22,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text("Name: ${farmer?['name'] ?? 'N/A'}"),
-              pw.Text("📞 Phone: ${farmer?['phone'] ?? '-'}"),
-              pw.SizedBox(height: 16),
-              pw.Text(
-                "Report generated automatically from the Farmer Dashboard.",
-              ),
-            ],
-          ),
-        ),
-      );
-
-      // 💾 Save PDF temporarily
-      final bytes = await pdf.save();
-      final dir = await getTemporaryDirectory();
-      final filePath =
-          '${dir.path}/Farmer_Report_${farmer?['name'] ?? 'Unknown'}.pdf';
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
-
-      // 🟢 WhatsApp share message
-      final msg =
-          '''
-👨‍🌾 Farmer Report - ${farmer?['name'] ?? 'Farmer'}
-📞 ${farmer?['phone'] ?? '-'}
-📄 Attached is your latest report from MakemyBiz.
-''';
-
-      // ✅ Share file to WhatsApp
-      await WhatsappShare.shareFile(
-        text: msg,
-        phone: "", // optional: add number, e.g. '+919876543210'
-        filePath: [filePath],
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Failed to share on WhatsApp: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _exportToPdfAndShareOnWhatsApp() async {
-    try {
-      final pdf = pw.Document();
-
-      // 🔤 Load fonts (same as existing)
-      final regularFont = pw.Font.ttf(
-        await rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
-      );
-      final boldFont = pw.Font.ttf(
-        await rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
-      );
-      final emojiFont = pw.Font.ttf(
-        await rootBundle.load("assets/fonts/NotoColorEmoji.ttf"),
-      );
-      final theme = pw.ThemeData.withFont(
-        base: regularFont,
-        bold: boldFont,
-        fontFallback: [emojiFont],
-      );
-
-      // 🖼️ Load farmer image (optional)
-      pw.ImageProvider? farmerImage;
-      final imageUrl =
-          farmer?['profile_image'] != null &&
-              farmer!['profile_image'].toString().isNotEmpty
-          ? 'https://vasudha.app/${farmer!['profile_image']}'
-          : null;
-
-      if (imageUrl != null) {
-        try {
-          final response = await http.get(Uri.parse(imageUrl));
-          if (response.statusCode == 200) {
-            farmerImage = pw.MemoryImage(response.bodyBytes);
-          }
-        } catch (_) {}
-      }
-
-      // 📊 Add 1-page PDF (you can keep charts if you want)
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          theme: theme,
-          build: (context) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                "👨‍🌾 Farmer Report",
-                style: pw.TextStyle(
-                  fontSize: 20,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Text("Name: ${farmer?['name'] ?? 'N/A'}"),
-              pw.Text("📞 Phone: ${farmer?['phone'] ?? '-'}"),
-              pw.SizedBox(height: 20),
-              pw.Text("This is your detailed farmer dashboard report."),
-            ],
-          ),
-        ),
-      );
-
-      // 💾 Save PDF locally
-      final bytes = await pdf.save();
-      final dir = await getTemporaryDirectory();
-      final file = File(
-        '${dir.path}/Farmer_Report_${farmer?['name'] ?? 'Unknown'}.pdf',
-      );
-      await file.writeAsBytes(bytes);
-
-      // 💬 Message text
-      final name = farmer?['name'] ?? 'Farmer';
-      final phone = farmer?['phone'] ?? '-';
-      final msg =
-          '''
-👨‍🌾 Farmer Dashboard - $name
-📞 Mobile: $phone
-📄 Please find attached your PDF report.
-''';
-
-      // 🟢 Share via WhatsApp (or share dialog)
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: msg,
-        subject: 'Farmer Dashboard Report',
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('❌ Failed to share PDF: $e')));
-      }
-    }
-  }
-
   Future<List<Uint8List>> _captureChartsAsImages() async {
     final List<Uint8List> chartImages = [];
 
@@ -667,24 +493,86 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   }
 
   Future<void> _shareOnWhatsApp() async {
-    final name = farmer?['name'] ?? 'Farmer';
-    final phone = farmer?['phone'] ?? '-';
-    final msg =
-        '''
+    try {
+      final name = farmer?['name'] ?? 'Farmer';
+      final phone = farmer?['phone'] ?? '-';
+
+      // 🧱 Step 1: Generate PDF (same as your export)
+      final pdf = pw.Document();
+
+      final regularFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
+      );
+      final boldFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
+      );
+      final emojiFont = pw.Font.ttf(
+        await rootBundle.load("assets/fonts/NotoColorEmoji.ttf"),
+      );
+      final theme = pw.ThemeData.withFont(
+        base: regularFont,
+        bold: boldFont,
+        fontFallback: [emojiFont],
+      );
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          theme: theme,
+          build: (context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                "👨‍🌾 Farmer Report",
+                style: pw.TextStyle(
+                  fontSize: 22,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text("Name: $name"),
+              pw.Text("📞 Phone: $phone"),
+              pw.SizedBox(height: 16),
+              pw.Text(
+                "Report generated automatically from the Farmer Dashboard.",
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // 💾 Step 2: Save PDF locally
+      final bytes = await pdf.save();
+      final dir = await getTemporaryDirectory();
+      final filePath = '${dir.path}/Farmer_Report_$name.pdf';
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
+
+      // 💬 Step 3: WhatsApp message
+      final msg =
+          '''
 👨‍🌾 Farmer Dashboard - $name
 📞 Mobile: $phone
-🔗 View Dashboard in App
+📄 Please find attached your latest report from MakemyBiz.
 ''';
 
-    final encodedMsg = Uri.encodeComponent(msg);
-    final url = Uri.parse("https://wa.me/?text=$encodedMsg");
-
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Unable to open WhatsApp')));
+      // 🟢 Step 4: Share PDF via WhatsApp
+      try {
+        await WhatsappShare.shareFile(
+          text: msg,
+          filePath: [file.path],
+          phone: "", // optional: add '+91xxxxxxxxxx' for direct chat
+        );
+      } catch (e) {
+        // fallback if WhatsApp not installed
+        await Share.shareXFiles([XFile(file.path)], text: msg);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('❌ WhatsApp share failed: $e')));
+      }
     }
   }
 
@@ -1092,7 +980,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
               child: Column(
                 children: [
                   ElevatedButton.icon(
-                    onPressed: _exportAndShareToWhatsApp,
+                    onPressed: _shareOnWhatsApp,
                     icon: const Icon(FontAwesomeIcons.whatsapp),
                     label: const Text('Share'),
                     style: ElevatedButton.styleFrom(
@@ -1243,15 +1131,6 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
     );
   }
 
-  // share
-  void _share() {
-    final name = farmer?['name'] ?? 'Farmer';
-    final phone = farmer?['phone'] ?? '';
-    final msg =
-        '👨‍🌾 Farmer Dashboard - $name\n📞 $phone\nOpen app to view details.';
-    Share.share(msg);
-  }
-
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
@@ -1357,7 +1236,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                         child: Column(
                           children: [
                             ElevatedButton.icon(
-                              onPressed: _share,
+                              onPressed: _shareOnWhatsApp,
                               icon: const Icon(FontAwesomeIcons.whatsapp),
                               label: const Text('Share'),
                               style: ElevatedButton.styleFrom(
