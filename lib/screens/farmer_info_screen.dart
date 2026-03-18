@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart'; // adjust path if needed
+import 'package:vasudha/widgets/auto_text.dart';
 
 class FarmerInfoScreen extends StatefulWidget {
   final String farmerId;
-  const FarmerInfoScreen({super.key, required this.farmerId});
+  final Map<String, dynamic> moduleData;
+  const FarmerInfoScreen({
+    super.key,
+    required this.farmerId,
+    required this.moduleData,
+  });
 
   @override
   State<FarmerInfoScreen> createState() => _FarmerInfoScreenState();
@@ -60,9 +66,10 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
     try {
       final res = await ApiService.getEmployeeById(widget.farmerId);
 
-
       if (res['status'] == "success") {
-        final Map<String, dynamic> emp = Map<String, dynamic>.from(res['data'] ?? {});
+        final Map<String, dynamic> emp = Map<String, dynamic>.from(
+          res['data'] ?? {},
+        );
 
         setState(() {
           nameController.text = emp['name']?.toString() ?? '';
@@ -96,7 +103,8 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
   }
 
   Widget _profileAvatar() {
-    final imageProvider = (profileImageUrl != null && profileImageUrl!.isNotEmpty)
+    final imageProvider =
+        (profileImageUrl != null && profileImageUrl!.isNotEmpty)
         ? NetworkImage(profileImageUrl!)
         : const AssetImage('assets/farmer.png') as ImageProvider;
 
@@ -107,7 +115,11 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
     );
   }
 
-  Widget _buildReadOnlyField(String label, TextEditingController controller, {int maxLines = 1}) {
+  Widget _buildReadOnlyField(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 1,
+  }) {
     return SizedBox(
       width: 350,
       child: TextField(
@@ -115,9 +127,12 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
         maxLines: maxLines,
         readOnly: true,
         decoration: InputDecoration(
-          labelText: label,
+          label: AutoText(label),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
         ),
       ),
     );
@@ -129,14 +144,12 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
     bool isWide = screenWidth > 600;
 
     if (loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Farmer Information"),
+        title: AutoText("Farmer Information"),
         backgroundColor: Colors.green,
         elevation: 0,
         actions: [
@@ -157,17 +170,26 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))],
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
             ),
             child: errorMsg != null
                 ? Column(
                     children: [
-                      Text(errorMsg!, style: const TextStyle(color: Colors.red)),
+                      AutoText(
+                        errorMsg!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
                       const SizedBox(height: 12),
                       ElevatedButton(
                         onPressed: _fetchFarmer,
-                        child: const Text('Retry'),
-                      )
+                        child: const AutoText('Retry'),
+                      ),
                     ],
                   )
                 : Column(
@@ -177,9 +199,13 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
+                          const AutoText(
                             "Farmer Information",
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
                           ),
                           _profileAvatar(),
                         ],
@@ -200,10 +226,17 @@ class _FarmerInfoScreenState extends State<FarmerInfoScreen> {
                           _buildReadOnlyField("District", districtController),
                           _buildReadOnlyField("Block", blockController),
                           _buildReadOnlyField("Hamlet", hamletController),
-                          _buildReadOnlyField("Total cultivable land owned by the family", landAreaController),
+                          _buildReadOnlyField(
+                            "Total cultivable land owned by the family",
+                            landAreaController,
+                          ),
                           SizedBox(
                             width: isWide ? 800 : double.infinity,
-                            child: _buildReadOnlyField("Address", addressController, maxLines: 3),
+                            child: _buildReadOnlyField(
+                              "Address",
+                              addressController,
+                              maxLines: 3,
+                            ),
                           ),
                         ],
                       ),

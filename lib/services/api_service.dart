@@ -44,12 +44,62 @@ class ApiService {
           "message": data["message"] ?? "Login successful",
           "user": data["user"],
           "token": token,
+          "user_type": data["user_type"],
         };
       } else {
         return {
           "ok": false,
           "message": data["message"] ?? "Invalid login credentials",
           "errors": data["errors"],
+        };
+      }
+    } on SocketException {
+      return {"ok": false, "message": "No internet connection"};
+    } on TimeoutException {
+      return {"ok": false, "message": "Request timed out"};
+    } catch (e) {
+      return {"ok": false, "message": "Unexpected error: $e"};
+    }
+  }
+
+  // 👤 Get Logged-in Employee Profile
+  static Future<Map<String, dynamic>> getEmployeeProfile() async {
+    final url = Uri.parse("$baseUrl/employee/me");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+
+      if (response.statusCode == 200 && data["ok"] == true) {
+        return {
+          "ok": true,
+          "data": {
+            "id": data["data"]["id"],
+            "name": data["data"]["name"],
+            "phone": data["data"]["phone"],
+            "email": data["data"]["email"],
+
+            // null photo fallback
+            "photo":
+                data["data"]["photo"] ??
+                "https://vasudha.app/assets/img/profiles/avatar-12.jpg",
+          },
+        };
+      } else {
+        return {
+          "ok": false,
+          "message": data["message"] ?? "Failed to load profile",
         };
       }
     } on SocketException {
@@ -74,7 +124,7 @@ class ApiService {
     required String village,
     required String halmet,
     required String address,
-    required String landArea,
+    required String totalCultivableLand,
     Uint8List? profileImageBytes, // optional (web)
     File? profileImageFile, // optional (mobile)
   }) async {
@@ -101,7 +151,7 @@ class ApiService {
       request.fields['village'] = village;
       request.fields['halmet'] = halmet;
       request.fields['address'] = address;
-      request.fields['land_area'] = landArea;
+      request.fields['total_cultivable_land'] = totalCultivableLand;
 
       // ✅ optional profile image
       if (profileImageFile != null) {
@@ -318,6 +368,7 @@ class ApiService {
 
     try {
       final token = await StorageService.getToken();
+
       final response = await http
           .get(
             url,
@@ -328,16 +379,30 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 20));
 
-      final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+      print("📌 GET FARMER ($farmerId) Status: ${response.statusCode}");
+      print("📌 Body: ${response.body}");
 
-      print(
-        "📌 GET FARMER ($farmerId) Response (${response.statusCode}): ${response.body}",
-      );
+      if (response.body.isEmpty) {
+        return {"status": "error", "message": "Empty response from server"};
+      }
 
-      // ✅ ab direct backend ka JSON return karenge
-      return data;
+      final decoded = jsonDecode(response.body);
+
+      // ✅ Handle based on status code
+      if (response.statusCode == 200) {
+        return decoded;
+      } else if (response.statusCode == 401) {
+        return {"status": "error", "message": "Unauthorized"};
+      } else if (response.statusCode == 404) {
+        return {"status": "error", "message": "Farmer not found"};
+      } else {
+        return {
+          "status": "error",
+          "message": decoded["message"] ?? "Server error",
+        };
+      }
     } catch (e) {
-      return {"status": "error", "message": "Error: $e"};
+      return {"status": "error", "message": "Exception: $e"};
     }
   }
 
@@ -677,6 +742,72 @@ class ApiService {
     }
   }
 
+  static Future<Map<int, String>> getStates() async {
+    final url = Uri.parse("$baseUrl/states");
+    try {
+      final token = await StorageService.getToken();
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        final List<dynamic> raw = data["data"] ?? [];
+
+        return {for (var s in raw) s["id"] as int: s["name"].toString()};
+      }
+      return {};
+    } catch (e) {
+      print("❌ getStates error: $e");
+      return {};
+    }
+  }
+
+  static Future<Map<int, String>> getZonesFlat() async {
+    final url = Uri.parse("$baseUrl/zones");
+    try {
+      final token = await StorageService.getToken();
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        final List<dynamic> raw = data["data"] ?? [];
+
+        Map<int, String> zones = {};
+
+        for (var state in raw) {
+          final List<dynamic> list = state["zones"] ?? [];
+
+          for (var z in list) {
+            zones[z["id"] as int] = z["name"].toString();
+          }
+        }
+
+        return zones;
+      }
+      return {};
+    } catch (e) {
+      print("❌ getZonesFlat error: $e");
+      return {};
+    }
+  }
+
   static Future<Map<int, String>> getMachineries() async {
     final url = Uri.parse("$baseUrl/machineries");
     try {
@@ -804,13 +935,11 @@ class ApiService {
   // 📦 Seed Usage APIs
 
   // 🔍 Get Seed Usages for a specific Farmer
-  static Future<Map<String, dynamic>> getSeedUsagesByFarmer(
-    String farmerId,
-  ) async {
-    final url = Uri.parse("$baseUrl/seed-usage/$farmerId");
+  static Future<Map<String, dynamic>> getSeedUsagesByPlot(String plotId) async {
+    final url = Uri.parse("$baseUrl/seed-usage/$plotId");
 
-    print("🔍 DEBUG: getSeedUsagesByFarmer() called");
-    print("📌 FarmerId param: $farmerId");
+    print("🔍 DEBUG: getSeedUsagesByPlot() called");
+    print("📌 PlotId param: $plotId");
     print("📌 Final URL: $url");
 
     try {
@@ -849,6 +978,7 @@ class ApiService {
 
   // ➕ Store New Seed Usage
   static Future<Map<String, dynamic>> storeSeedUsage({
+    required String plotId,
     required int farmerId,
     required int seedName, // 🔹 String → int
     int? seedVariety, // 🔹 String? → int?
@@ -870,6 +1000,7 @@ class ApiService {
               if (token != null) "Authorization": "Bearer $token",
             },
             body: jsonEncode({
+              "plot_id": plotId,
               "farmer_id": farmerId,
               "seed_name": seedName,
               "seed_variety": seedVariety,
@@ -901,6 +1032,7 @@ class ApiService {
   // ✏️ Update Existing Seed Usage
   static Future<Map<String, dynamic>> updateSeedUsage({
     required int id,
+    required String plotId,
     required Map<String, dynamic> updates,
   }) async {
     final url = Uri.parse("$baseUrl/seed-usage/update/$id");
@@ -916,7 +1048,7 @@ class ApiService {
               "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
-            body: jsonEncode(updates),
+            body: jsonEncode({"plot_id": plotId, ...updates}),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -941,7 +1073,10 @@ class ApiService {
   }
 
   // ❌ Delete Seed Usage Entry
-  static Future<Map<String, dynamic>> deleteSeedUsage(int id) async {
+  static Future<Map<String, dynamic>> deleteSeedUsage({
+    required int id,
+    required String plotId, // 🔹 Required for API validation
+  }) async {
     final url = Uri.parse("$baseUrl/seed-usage/delete/$id");
 
     try {
@@ -952,8 +1087,12 @@ class ApiService {
             url,
             headers: {
               "Accept": "application/json",
+              "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
+            body: jsonEncode({
+              "plot_id": plotId, // 🔹 Add plotId parameter
+            }),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -975,12 +1114,12 @@ class ApiService {
 
   // ➕ Fetch Chemical Usages for a given farmer
   static Future<Map<String, dynamic>> getChemicalUsagesByFarmer(
-    String farmerId,
+    String plotId,
   ) async {
-    final url = Uri.parse("$baseUrl/chemical-usages/$farmerId");
+    final url = Uri.parse("$baseUrl/chemical-usages/$plotId");
 
     print("🔍 DEBUG: getChemicalUsagesByFarmer() called");
-    print("📌 FarmerId param: $farmerId");
+    print("📌 PlotId param: $plotId");
     print("📌 Final URL: $url");
 
     try {
@@ -1021,10 +1160,10 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> getFertilizerUsagesByFarmer(
-    String farmerId,
+  static Future<Map<String, dynamic>> getFertilizerUsagesByPlot(
+    String plotId,
   ) async {
-    final url = Uri.parse("$baseUrl/fertilizer-usages/$farmerId");
+    final url = Uri.parse("$baseUrl/fertilizer-usages/$plotId");
 
     try {
       final token = await StorageService.getToken();
@@ -1057,6 +1196,7 @@ class ApiService {
   static Future<Map<String, dynamic>> storeFertilizerUsage({
     required int farmerId,
     required int inputName,
+    required String plotId,
     required int inputType,
     double? quantityUsed,
     required int unitType,
@@ -1078,6 +1218,7 @@ class ApiService {
             },
             body: jsonEncode({
               "farmer_id": farmerId,
+              "plot_id": plotId,
               "input_name": inputName,
               "input_type": inputType,
               "quantity_used": quantityUsed,
@@ -1128,12 +1269,16 @@ class ApiService {
       final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
 
       if (response.statusCode == 200) {
-        return {"ok": true, "data": data};
+        return {
+          "ok": true,
+          "message": data["message"] ?? "Fertilizer usage updated successfully",
+          "data": data["data"], // Laravel returns data inside "data"
+        };
       } else {
         return {
           "ok": false,
           "message": data["message"] ?? "Failed to update fertilizer usage",
-          "errors": data["errors"],
+          "errors": data["errors"] ?? null,
         };
       }
     } catch (e) {
@@ -1141,7 +1286,10 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> deleteFertilizerUsage(int id) async {
+  static Future<Map<String, dynamic>> deleteFertilizerUsage({
+    required int id,
+    required String plotId, // ✅ add plotId here
+  }) async {
     final url = Uri.parse("$baseUrl/fertilizer-usages/$id");
 
     try {
@@ -1152,8 +1300,12 @@ class ApiService {
             url,
             headers: {
               "Accept": "application/json",
+              "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
+            body: jsonEncode({
+              "plot_id": plotId,
+            }), // ✅ send plot_id as required by controller
           )
           .timeout(const Duration(seconds: 20));
 
@@ -1171,6 +1323,7 @@ class ApiService {
 
   static Future<Map<String, dynamic>> storeChemicalUsage({
     required int farmerId,
+    required String plotId,
     required int inputName,
     required int inputType,
     double? quantityUsed,
@@ -1193,6 +1346,7 @@ class ApiService {
             },
             body: jsonEncode({
               "farmer_id": farmerId,
+              "plot_id": plotId,
               "inptname": inputName,
               "inptyp": inputType,
               "qntyusd": quantityUsed,
@@ -1236,7 +1390,10 @@ class ApiService {
               "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
-            body: jsonEncode(updates),
+            body: jsonEncode({
+              ...updates,
+              "plot_id": updates["plot_id"], // ensure plot_id always sent
+            }),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -1256,7 +1413,10 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> deleteChemicalUsage(int id) async {
+  static Future<Map<String, dynamic>> deleteChemicalUsage(
+    int id,
+    String plotId,
+  ) async {
     final url = Uri.parse("$baseUrl/chemical-usage/$id");
 
     try {
@@ -1267,8 +1427,10 @@ class ApiService {
             url,
             headers: {
               "Accept": "application/json",
+              "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
+            body: jsonEncode({"plot_id": plotId}),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -1285,6 +1447,7 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> storeSustainableFertiliser({
+    required String plotId,
     required int farmerId,
     required int inputNameId,
     required int inputTypeId,
@@ -1307,6 +1470,7 @@ class ApiService {
               if (token != null) "Authorization": "Bearer $token",
             },
             body: jsonEncode({
+              "plot_id": plotId,
               "farmer_id": farmerId,
               "inputnamee": inputNameId,
               "inputtypee": inputTypeId,
@@ -1351,7 +1515,10 @@ class ApiService {
               "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
-            body: jsonEncode(updates),
+            body: jsonEncode({
+              ...updates,
+              "plot_id": updates["plot_id"], // ensure plot_id is sent to API
+            }),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -1373,6 +1540,7 @@ class ApiService {
 
   static Future<Map<String, dynamic>> deleteSustainableFertiliser(
     int id,
+    String plotId,
   ) async {
     final url = Uri.parse("$baseUrl/sustainable-fertiliser/$id");
 
@@ -1384,8 +1552,10 @@ class ApiService {
             url,
             headers: {
               "Accept": "application/json",
+              "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
+            body: jsonEncode({"plot_id": plotId}),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -1402,9 +1572,9 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> getSustainableFertilisersByFarmer(
-    int farmerId,
+    String plotId,
   ) async {
-    final url = Uri.parse("$baseUrl/sustainable-fertiliser/$farmerId");
+    final url = Uri.parse("$baseUrl/sustainable-fertiliser/$plotId");
 
     try {
       final token = await StorageService.getToken();
@@ -1436,9 +1606,9 @@ class ApiService {
 
   // 🌿 Get all pesticide records for a farmer
   static Future<Map<String, dynamic>> getPesticidesByFarmer(
-    String farmerId,
+    String plotId,
   ) async {
-    final url = Uri.parse("$baseUrl/pesticides/$farmerId");
+    final url = Uri.parse("$baseUrl/pesticides/$plotId");
 
     try {
       final token = await StorageService.getToken();
@@ -1470,6 +1640,7 @@ class ApiService {
 
   // 🌿 Store a new pesticide usage record
   static Future<Map<String, dynamic>> storePesticide({
+    required String plotId,
     required int farmerId,
     required int inputId,
     required int inputType,
@@ -1492,6 +1663,7 @@ class ApiService {
               if (token != null) "Authorization": "Bearer $token",
             },
             body: jsonEncode({
+              "plot_id": plotId,
               "farmer_id": farmerId,
               "inputttt": inputId,
               "inpuuttype": inputType,
@@ -1521,6 +1693,7 @@ class ApiService {
 
   // ✏️ Update existing pesticide record
   static Future<Map<String, dynamic>> updatePesticide({
+    required String plotId,
     required int id,
     required Map<String, dynamic> updates,
   }) async {
@@ -1537,7 +1710,7 @@ class ApiService {
               "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
-            body: jsonEncode(updates),
+            body: jsonEncode({"plot_id": plotId, ...updates}),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -1558,7 +1731,10 @@ class ApiService {
   }
 
   // ❌ Delete a pesticide record
-  static Future<Map<String, dynamic>> deletePesticide(int id) async {
+  static Future<Map<String, dynamic>> deletePesticide({
+    required int id,
+    required String plotId,
+  }) async {
     final url = Uri.parse("$baseUrl/pesticides/$id");
 
     try {
@@ -1569,8 +1745,10 @@ class ApiService {
             url,
             headers: {
               "Accept": "application/json",
+              "Content-Type": "application/json",
               if (token != null) "Authorization": "Bearer $token",
             },
+            body: jsonEncode({"plot_id": plotId}),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -1590,8 +1768,8 @@ class ApiService {
   }
 
   // 📌 Farmer Summary API
-  static Future<Map<String, dynamic>> getFarmerSummary(String farmerId) async {
-    final url = Uri.parse('$baseUrl/farmer-summary/$farmerId'); // Laravel route
+  static Future<Map<String, dynamic>> getFarmerSummary(String plotId) async {
+    final url = Uri.parse('$baseUrl/farmer-summary/$plotId');
     try {
       final token = await StorageService.getToken();
       final response = await http.get(
@@ -1616,8 +1794,8 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> getFarmerDashboard(int farmerId) async {
-    final url = Uri.parse('$baseUrl/farmers/$farmerId/dashboard');
+  static Future<Map<String, dynamic>> getFarmerDashboard(int auditId) async {
+    final url = Uri.parse('$baseUrl/farmer-audit/$auditId/dashboard');
 
     try {
       final token = await StorageService.getToken();
@@ -1638,11 +1816,13 @@ class ApiService {
         return {
           'ok': true,
           'data': {
+            'audit_id': data['audit_id'],
+            'farmer_id': data['farmer_id'],
             'farmer': data['farmer'],
             'metrics': data['metrics'],
-            'environmental_metrics': data['environmental_metrics'],
-            'soil_health_metrics': data['soil_health_metrics'],
-            'climate_change_metrics': data['climate_change_metrics'],
+            'environmentalMetrics': data['environmentalMetrics'],
+            'soilHealthMetrics': data['soilHealthMetrics'],
+            'climateChangeMetrics': data['climateChangeMetrics'],
           },
         };
       } else {
@@ -1659,13 +1839,16 @@ class ApiService {
 
   static Future<Map<String, dynamic>> updateFarmerAnalysis({
     required int farmerId,
+    int? auditId,
     required int cropId, // maps to "cropp"
     required int irrigationMethodId, // maps to "irrigationn_method"
     required double waterUsageInMm, // required
     required String landSize, // required
     required double waterUsageInLtr, // required
     required double irrigationEfficiency, // required
+    int? yieldUnit,
     double? totalYield, // optional (used for total_yield_kg calc)
+    int? usageType,
     double? salePricePerUnit, // optional
     double? farmGatePrice, // optional
     double? soldQuantity, // optional
@@ -1690,12 +1873,15 @@ class ApiService {
 
       // ✅ Payload backend validation के अनुसार बनाया गया है
       final requestData = {
+        'audit_id': auditId,
         'cropp': cropId,
         'irrigationn_method': irrigationMethodId,
         'water_usage_in_mm': waterUsageInMm,
         'land_size': landSize,
         'water_usage_in_ltr': waterUsageInLtr,
         'irrigation_efficiency': irrigationEfficiency,
+        'yield_unit': yieldUnit,
+        'usage_type': usageType,
 
         // ✅ Optional fields for further backend calculations
         'total_yield': totalYield,
@@ -1743,8 +1929,10 @@ class ApiService {
       if (response.statusCode == 200 && data['status'] == 'success') {
         return {
           'ok': true,
-          'message': data['message'] ?? 'Analysis updated successfully',
-          'data': data['data'] ?? data,
+          'message': data['message'] ?? 'Analysis saved successfully',
+          'audit_id':
+              data['data']?['audit']?['id'], // 🆕 Return audit_id if needed
+          'data': data['data'],
         };
       } else {
         return {
@@ -1756,6 +1944,824 @@ class ApiService {
       }
     } catch (e) {
       return {'ok': false, 'message': 'Error: $e'};
+    }
+  }
+
+  // PUT request with token from StorageService
+  static Future<Map<String, dynamic>?> putJson(String url, Map body) async {
+    try {
+      final token = await StorageService.getToken(); // ✅ get token dynamically
+      if (token == null) throw Exception("No auth token found");
+
+      final response = await http
+          .put(
+            Uri.parse(url),
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              "Authorization": "Bearer $token",
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+      return data;
+    } on SocketException {
+      return {"status": "error", "message": "No internet connection"};
+    } on TimeoutException {
+      return {"status": "error", "message": "Request timed out"};
+    } catch (e) {
+      return {"status": "error", "message": "Unexpected error: $e"};
+    }
+  }
+
+  // 📌 Get Advisory Filters (States, Zones, Crops)
+  static Future<Map<String, dynamic>> getAdvisoryFilters() async {
+    final url = Uri.parse("$baseUrl/advisory/filters");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "states": data["states"] ?? [],
+          "zones": data["zones"] ?? [],
+          "crops": data["crops"] ?? [],
+          "advisories": data["advisories"] ?? [],
+        };
+      } else {
+        return {
+          "ok": false,
+          "message": data["message"] ?? "Failed to load advisory filters",
+          "errors": data["errors"],
+        };
+      }
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Filter Advisories (state_id, zone_id, crop_id)
+  static Future<Map<String, dynamic>> filterAdvisories({
+    required int stateId,
+    required int zoneId,
+    required int cropId,
+  }) async {
+    final url = Uri.parse("$baseUrl/advisory/filter");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .post(
+            url,
+            headers: {
+              "Accept": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+            body: {
+              "state_id": stateId.toString(),
+              "zone_id": zoneId.toString(),
+              "crop_id": cropId.toString(),
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "states": data["states"] ?? [],
+          "zones": data["zones"] ?? [],
+          "crops": data["crops"] ?? [],
+          "advisories": data["advisories"] ?? [],
+        };
+      } else {
+        return {
+          "ok": false,
+          "message": data["message"] ?? "Failed to filter advisories",
+          "errors": data["errors"],
+        };
+      }
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Get KS Sales Pad Data
+  static Future<Map<String, dynamic>> getKsSaleData() async {
+    final url = Uri.parse("$baseUrl/ks/sale-data");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+
+          // 🔹 direct backend keys
+          "ks": data["ks"],
+          "auto_order_no": data["auto_order_no"],
+          "farmers": data["farmers"] ?? [],
+          "crops": data["crops"] ?? [],
+          "input_names": data["input_names"] ?? [],
+          "input_types": data["input_types"] ?? [],
+          "unit_types": data["unit_types"] ?? [],
+
+          // 🔹 Orders
+          "orders": data["openOrders"] ?? [],
+
+          // 🔹 Summary
+          "openGross": data["openGross"] ?? 0,
+        };
+      } else {
+        return {
+          "ok": false,
+          "message": data["message"] ?? "Failed to load KS Sale data",
+          "statusCode": response.statusCode,
+          "errors": data["errors"],
+        };
+      }
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Store KS Sale (Create Order)
+  static Future<Map<String, dynamic>> storeKsSale({
+    required int farmerId,
+    required int cropId,
+    String? area,
+    String? areaUnit,
+    String? deliveryDate, // yyyy-MM-dd
+    String? timeWindow,
+    String? place,
+    double? amountReceived,
+    String? paymentMode,
+    String? notes,
+    String? ksNotes,
+    required List<Map<String, dynamic>> lines,
+  }) async {
+    final url = Uri.parse("$baseUrl/ks/sale/store");
+
+    try {
+      final token = await StorageService.getToken();
+
+      // ✅ Payload exactly backend validation ke according
+      final Map<String, dynamic> requestData = {
+        "farmer_id": farmerId,
+        "crop_id": cropId,
+        "area": area,
+        "area_unit": areaUnit,
+        "delivery_date": deliveryDate,
+        "time_window": timeWindow,
+        "place": place,
+        "amount_received": amountReceived,
+        "payment_mode": paymentMode,
+        "notes": notes,
+        "ks_notes": ksNotes,
+        "lines": lines,
+      };
+
+      // ❌ null values remove (clean payload)
+      requestData.removeWhere((key, value) => value == null);
+
+      final response = await http
+          .post(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+            body: jsonEncode(requestData),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 201 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "message": data["message"] ?? "Order saved successfully",
+          "order": data["order"],
+        };
+      } else {
+        return {
+          "ok": false,
+          "message": data["message"] ?? "Failed to save order",
+          "errors": data["errors"],
+          "statusCode": response.statusCode,
+        };
+      }
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Show KS Sale (Edit / View Order)
+  static Future<Map<String, dynamic>> showKsSale({required int orderId}) async {
+    final url = Uri.parse("$baseUrl/ks-sale/$orderId");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+
+          // 🔹 Core
+          "ks": data["ks"],
+          "order": data["order"],
+          "auto_order_no": data["auto_order_no"],
+
+          // 🔹 Master data
+          "farmers": data["farmers"] ?? [],
+          "crops": data["crops"] ?? [],
+          "input_names": data["input_names"] ?? [],
+          "input_types": data["input_types"] ?? [],
+          "unit_types": data["unit_types"] ?? [],
+
+          // 🔹 Side list / summary
+          "orders": data["openOrders"] ?? [],
+          "openGross": data["openGross"] ?? 0,
+        };
+      }
+
+      // ❌ 401 / 403 / 404 / 500
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load KS Sale",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Edit KS Sale (Load order + master data)
+  static Future<Map<String, dynamic>> editKsSale({required int orderId}) async {
+    final url = Uri.parse("$baseUrl/ks-sales/$orderId/edit");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+
+          // 🔹 Core
+          "ks": data["ks"],
+          "order": data["order"],
+          "auto_order_no": data["auto_order_no"],
+
+          // 🔹 Master data
+          "farmers": data["farmers"] ?? [],
+          "crops": data["crops"] ?? [],
+          "input_names": data["input_names"] ?? [],
+          "input_types": data["input_types"] ?? [],
+          "unit_types": data["unit_types"] ?? [],
+
+          // 🔹 Side list
+          "orders": data["openOrders"] ?? [],
+          "openGross": data["openGross"] ?? 0,
+        };
+      }
+
+      // ❌ Error handling
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load order",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Update KS Sale
+  static Future<Map<String, dynamic>> updateKsSale({
+    required int orderId,
+    required int farmerId,
+    required int cropId,
+    String? area,
+    String? areaUnit,
+    String? deliveryDate, // yyyy-MM-dd
+    String? timeWindow,
+    String? place,
+    double? amountReceived,
+    String? paymentMode,
+    String? notes,
+    String? ksNotes,
+    String? status,
+    required List<Map<String, dynamic>> lines,
+  }) async {
+    final url = Uri.parse("$baseUrl/ks-sales/$orderId");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final Map<String, dynamic> requestData = {
+        "farmer_id": farmerId,
+        "crop_id": cropId,
+        "area": area,
+        "area_unit": areaUnit,
+        "delivery_date": deliveryDate,
+        "time_window": timeWindow,
+        "place": place,
+        "amount_received": amountReceived,
+        "payment_mode": paymentMode,
+        "notes": notes,
+        "ks_notes": ksNotes,
+        "status": status,
+        "lines": lines,
+      };
+
+      // ✅ Remove null values (important)
+      requestData.removeWhere((key, value) => value == null);
+
+      final response = await http
+          .put(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+            body: jsonEncode(requestData),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "message": data["message"] ?? "Order updated successfully",
+          "order": data["order"],
+        };
+      }
+
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to update order",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Crop Videos (Filters + Search)
+  static Future<Map<String, dynamic>> getCropVideos({
+    String? cropSubject,
+    String? language,
+  }) async {
+    final queryParams = <String, String>{};
+
+    if (cropSubject != null && cropSubject.isNotEmpty) {
+      queryParams['crop_subject'] = cropSubject;
+    }
+    if (language != null && language.isNotEmpty) {
+      queryParams['language'] = language;
+    }
+
+    final uri = Uri.parse(
+      "$baseUrl/crop-videos/filters",
+    ).replace(queryParameters: queryParams);
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+
+          // 🔹 Filters
+          "filters": data["filters"] ?? {},
+
+          // 🔹 Dropdowns
+          "crops": data["crops"] ?? [],
+          "languages": data["languages"] ?? [],
+
+          // 🔹 Result
+          "videos": data["videos"] ?? [],
+        };
+      }
+
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load crop videos",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Language Master
+  static Future<Map<String, dynamic>> getLanguages() async {
+    final url = Uri.parse("$baseUrl/languages");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "count": data["count"] ?? 0,
+          "languages": data["languages"] ?? [],
+        };
+      }
+
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load languages",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Get Weather (City / Pincode)
+  static Future<Map<String, dynamic>> getWeather({
+    String? city, // city name OR pincode
+  }) async {
+    final queryParams = <String, String>{};
+
+    if (city != null && city.isNotEmpty) {
+      queryParams['city'] = city;
+    }
+
+    final uri = Uri.parse(
+      "$baseUrl/weather",
+    ).replace(queryParameters: queryParams);
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+
+          // 🔹 From backend
+          "city": data["city"],
+          "location": data["location"],
+          "current": data["current"],
+          "forecast": data["forecast"],
+        };
+      }
+
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load weather",
+        "statusCode": response.statusCode,
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  static Future<Map<String, dynamic>> fetchFarmersHarvestList() async {
+    final url = Uri.parse("$baseUrl/farmers/harvest-list");
+
+    try {
+      final token = await StorageService.getToken();
+
+      // ❗ Handle Authorization header
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null)
+                "Authorization": "Bearer $token", // Add token if available
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      // Handle success and failure responses
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "count": data["count"] ?? 0,
+          "farmers": data["farmers"] ?? [],
+        };
+      } else {
+        return {
+          "ok": false,
+          "message": data["message"] ?? "Failed to load farmers list",
+          "statusCode": response.statusCode,
+          "errors": data["errors"],
+        };
+      }
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Get Farmer Audits
+  static Future<Map<String, dynamic>> getFarmerAudits({
+    required int farmerId,
+  }) async {
+    final url = Uri.parse("$baseUrl/farmers/$farmerId/audits");
+
+    try {
+      final token = await StorageService.getToken();
+
+      // ❗ Handle Authorization header
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null)
+                "Authorization": "Bearer $token", // Add token if available
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      // Handle success and failure responses
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "count": data["count"] ?? 0,
+          "audits": data["audits"] ?? [], // Audits data
+        };
+      } else {
+        return {
+          "ok": false,
+          "message": data["message"] ?? "Failed to load farmer audits",
+          "statusCode": response.statusCode,
+          "errors": data["errors"],
+        };
+      }
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Harvest Audit Module
+  static Future<Map<String, dynamic>> getHarvestAuditModule({
+    required int farmerId,
+  }) async {
+    final url = Uri.parse("$baseUrl/harvest-audit/module/$farmerId");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null)
+                "Authorization": "Bearer $token", // Add token if available
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "farmer": data["farmer"] ?? {},
+          "seasons": data["seasons"] ?? [],
+          "crops": data["crops"] ?? [],
+          "irrigationMethods": data["irrigationMethods"] ?? [],
+          "unitTypes": data["unitTypes"] ?? [],
+          "usageTypes": data["usageTypes"] ?? [],
+          "seedVarieties": data["seedVarieties"] ?? [],
+          "inputNames": data["inputNames"] ?? [],
+          "inputTypes": data["inputTypes"] ?? [],
+          "machineries": data["machineries"] ?? [],
+        };
+      }
+
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load harvest audit module",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Edit Harvest Audit
+  static Future<Map<String, dynamic>> getEditHarvestAudit({
+    required int auditId,
+  }) async {
+    final url = Uri.parse("$baseUrl/harvest-audit/edit/$auditId");
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            url,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "audit": data["audit"] ?? {},
+          "farmer": data["farmer"] ?? {},
+          "farmer_id": data["farmer_id"],
+        };
+      }
+
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load harvest audit",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
+    }
+  }
+
+  // 📌 Get Dashboard (Employee / Farmer / Admin)
+  static Future<Map<String, dynamic>> getDashboard({String? city}) async {
+    final uri = Uri.parse(
+      "$baseUrl/dashboard${city != null ? '?city=$city' : ''}",
+    );
+
+    try {
+      final token = await StorageService.getToken();
+
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              if (token != null) "Authorization": "Bearer $token",
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body)
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data["status"] == "success") {
+        return {
+          "ok": true,
+          "user_type": data["user_type"],
+          "dashboard": data["dashboard"] ?? {},
+          "weather": data["weather"] ?? {},
+          "notifications": data["notifications"] ?? [],
+        };
+      }
+
+      return {
+        "ok": false,
+        "message": data["message"] ?? "Failed to load dashboard",
+        "statusCode": response.statusCode,
+        "errors": data["errors"],
+      };
+    } catch (e) {
+      return {"ok": false, "message": "Error: $e"};
     }
   }
 }

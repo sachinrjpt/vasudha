@@ -1,5 +1,6 @@
 class Employee {
   final int id;
+  final int? auditId;
   final String employeeId;
   final String name;
   final String gender;
@@ -71,6 +72,7 @@ class Employee {
 
   Employee({
     required this.id,
+    this.auditId,
     required this.employeeId,
     required this.name,
     required this.gender,
@@ -145,6 +147,7 @@ class Employee {
   factory Employee.fromJson(Map<String, dynamic> json) {
     return Employee(
       id: json["id"] ?? 0,
+      auditId: json["audit_id"],
       employeeId: json["employee_id"] ?? "",
       name: json["name"] ?? "",
       gender: json["gender"] ?? "",
@@ -190,7 +193,9 @@ class Employee {
       femaleFamilyLabourDays: json["female_family_labour_days"],
       maleWageRate: json["male_wage_rate"],
       femaleWageRate: json["female_wage_rate"],
-      machineryId: (json["machinery_id"] as List?)?.map((e) => e.toString()).toList(),
+      machineryId: (json["machinery_id"] as List?)
+          ?.map((e) => e.toString())
+          .toList(),
       machineryCost: json["machinery_cost"],
       irrigationCost: json["irrigation_cost"],
       otherCost: json["other_cost"],
@@ -211,8 +216,12 @@ class Employee {
       waterUsageInLtr: json["water_usage_in_ltr"],
       irrigationEfficiency: json["irrigation_efficiency"],
       profileImage: json["profile_image"],
-      createdAt: json["created_at"] != null ? DateTime.tryParse(json["created_at"]) : null,
-      updatedAt: json["updated_at"] != null ? DateTime.tryParse(json["updated_at"]) : null,
+      createdAt: json["created_at"] != null
+          ? DateTime.tryParse(json["created_at"])
+          : null,
+      updatedAt: json["updated_at"] != null
+          ? DateTime.tryParse(json["updated_at"])
+          : null,
     );
   }
 
@@ -220,6 +229,7 @@ class Employee {
   Map<String, dynamic> toJson() {
     return {
       "id": id,
+      "audit_id": auditId,
       "employee_id": employeeId,
       "name": name,
       "gender": gender,

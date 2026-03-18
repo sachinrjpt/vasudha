@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart'; // for kIsWeb
 import 'farmer_wizard.dart'; // ✅ NEW
 import 'farmer_dashboard_screen.dart';
+import 'package:vasudha/widgets/auto_text.dart';
 
 class KrishiSakhiScreen extends StatefulWidget {
   const KrishiSakhiScreen({super.key});
@@ -75,15 +76,15 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
       final ImageSource? source = await showDialog<ImageSource>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text("Select Image Source"),
+          title: AutoText("Select Image Source"),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, ImageSource.camera),
-              child: const Text("Camera"),
+              child: AutoText("Camera"),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, ImageSource.gallery),
-              child: const Text("Gallery"),
+              child: AutoText("Gallery"),
             ),
           ],
         ),
@@ -114,17 +115,17 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Confirm Delete"),
-        content: const Text("Are you sure you want to delete this employee?"),
+        title: AutoText("Confirm Delete"),
+        content: AutoText("Are you sure you want to delete this employee?"),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
+            child: AutoText("Cancel"),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("Delete"),
+            child: AutoText("Delete"),
           ),
         ],
       ),
@@ -225,17 +226,17 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                 final source = await showDialog<ImageSource>(
                   context: context,
                   builder: (context) => AlertDialog(
-                    title: const Text("Select Image Source"),
+                    title: AutoText("Select Image Source"),
                     actions: [
                       TextButton(
                         onPressed: () =>
                             Navigator.pop(context, ImageSource.camera),
-                        child: const Text("Camera"),
+                        child: AutoText("Camera"),
                       ),
                       TextButton(
                         onPressed: () =>
                             Navigator.pop(context, ImageSource.gallery),
-                        child: const Text("Gallery"),
+                        child: AutoText("Gallery"),
                       ),
                     ],
                   ),
@@ -253,7 +254,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
             }
 
             return AlertDialog(
-              title: const Text("Edit Employee"),
+              title: AutoText("Edit Employee"),
               content: SingleChildScrollView(
                 child: Wrap(
                   spacing: 12,
@@ -330,7 +331,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                           ? _selectedVillage
                           : null,
                       decoration: const InputDecoration(
-                        labelText: "Village",
+                        label: AutoText("Village"),
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(
                           horizontal: 12,
@@ -340,7 +341,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                       items: _villageList.map<DropdownMenuItem<String>>((v) {
                         return DropdownMenuItem<String>(
                           value: v["Name"],
-                          child: Text(v["Name"] ?? ""),
+                          child: AutoText(v["Name"] ?? ""),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -407,7 +408,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                           const SizedBox(width: 16),
                           ElevatedButton.icon(
                             icon: const Icon(Icons.upload),
-                            label: const Text("Upload Photo"),
+                            label: AutoText("Upload Photo"),
                             onPressed: _pickImage,
                           ),
                         ],
@@ -419,12 +420,12 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text("Cancel"),
+                  child: AutoText("Cancel"),
                 ),
                 ElevatedButton(
                   onPressed: () async {
                     final result = await ApiService.updateEmployee(
-                      employeeId: item["employee_id"] ?? "",
+                      employeeId: item["id"].toString(),
                       name: nameController.text,
                       phone: phoneController.text,
                       email: emailController.text,
@@ -457,7 +458,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                       );
                     }
                   },
-                  child: const Text("Save"),
+                  child: AutoText("Save"),
                 ),
               ],
             );
@@ -483,7 +484,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
         obscureText: obscure,
         onChanged: onChanged, // ✅ pass it to TextField
         decoration: InputDecoration(
-          labelText: label,
+          label: AutoText(label),
           border: const OutlineInputBorder(),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 12,
@@ -506,11 +507,11 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
       child: DropdownButtonFormField<String>(
         value: value != null && options.contains(value) ? value : null,
         items: options
-            .map((e) => DropdownMenuItem<String>(value: e, child: Text(e)))
+            .map((e) => DropdownMenuItem<String>(value: e, child: AutoText(e)))
             .toList(),
         onChanged: onChanged,
         decoration: InputDecoration(
-          labelText: label,
+          label: AutoText(label),
           border: const OutlineInputBorder(),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 12,
@@ -518,6 +519,126 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  void _showAuditSheet(BuildContext context, int farmerId, String farmerName) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: ApiService.getFarmerAudits(farmerId: farmerId),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (!snapshot.hasData || snapshot.data!["ok"] != true) {
+                return Center(
+                  child: Text(
+                    snapshot.data?["message"] ?? "Failed to load audits",
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                );
+              }
+
+              final audits = snapshot.data!["audits"] as List;
+
+              if (audits.isEmpty) {
+                return const Center(child: Text("No audits found"));
+              }
+
+              return ListView.builder(
+                shrinkWrap: true,
+                itemCount: audits.length,
+                itemBuilder: (context, index) {
+                  final audit = audits[index];
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Plot ID: ${audit["plot_id"] ?? "-"}",
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 6),
+                          Text("Date: ${audit["created_at"] ?? "-"}"),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                color: Colors.orange,
+                                onPressed: () async {
+                                  final auditId = audit["id"];
+
+                                  final res =
+                                      await ApiService.getEditHarvestAudit(
+                                        auditId: auditId,
+                                      );
+
+                                  if (res["ok"] == true) {
+                                    final moduleData = {
+                                      "ok": true,
+                                      "data": {
+                                        "audit": res["audit"],
+                                        "farmer": res["farmer"],
+                                        "plots": [
+                                          {"id": res["audit"]["plot_id"]},
+                                        ],
+                                        "audits": [],
+                                      },
+                                    };
+
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => FarmerWizard(
+                                          farmerId: res["farmer_id"].toString(),
+                                          moduleData: moduleData,
+                                          isNewAudit: false,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.dashboard),
+                                color: Colors.blue,
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => FarmerDashboardScreen(
+                                        auditId: audit["id"],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -549,7 +670,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                 color: color,
               ),
             ),
-            Text(title, style: const TextStyle(fontSize: 14)),
+            AutoText(title, style: const TextStyle(fontSize: 14)),
           ],
         ),
       ),
@@ -590,7 +711,7 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
                     _buildStatCard(
-                      "Total Employee",
+                      "Total Farmers",
                       "${_summary["total_employee"]}",
                       Colors.black,
                       Icons.people,
@@ -644,18 +765,22 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                 headingRowColor: WidgetStateProperty.all(Colors.blue.shade50),
                 border: TableBorder.all(color: Colors.grey.shade300),
                 columns: const [
-                  DataColumn(label: Text("S/N")),
-                  DataColumn(label: Text("Photo")),
-                  DataColumn(label: Text("ID")),
-                  DataColumn(label: Text("Name")),
-                  DataColumn(label: Text("Phone")),
-                  DataColumn(label: Text("Email")),
-                  DataColumn(label: Text("Designation")),
-                  DataColumn(label: Text("Status")),
-                  DataColumn(label: Text("Action")),
+                  DataColumn(label: AutoText("S/N")),
+                  DataColumn(label: AutoText("Photo")),
+                  DataColumn(label: AutoText("Farmers")),
+                  DataColumn(label: AutoText("Phone")),
+                  DataColumn(label: AutoText("Pin Code")),
+                  DataColumn(label: AutoText("State")),
+                  DataColumn(label: AutoText("Village")),
+                  DataColumn(label: AutoText("Hamlet")),
+                  DataColumn(label: AutoText("Total Land (Acre)")),
+                  DataColumn(label: AutoText("Created By")),
+                  DataColumn(label: AutoText("Created At")),
+                  DataColumn(label: AutoText("Action")),
                 ],
                 rows: List<DataRow>.generate(_filteredList.length, (index) {
                   final item = _filteredList[index];
+                  final password = item["password"] ?? "******";
                   final String rawImageUrl = item["profile_image"] ?? "";
                   final String imageUrl = rawImageUrl.replaceAll("\\", "");
 
@@ -668,7 +793,8 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
 
                   return DataRow(
                     cells: [
-                      DataCell(Text("${index + 1}")),
+                      DataCell(AutoText("${index + 1}")), // S/N
+                      // Photo
                       DataCell(
                         CircleAvatar(
                           backgroundColor: Colors.grey.shade200,
@@ -681,22 +807,30 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
                               width: 40,
                               height: 40,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Icon(
-                                  Icons.person,
-                                  color: Colors.grey,
-                                );
-                              },
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.person, color: Colors.grey),
                             ),
                           ),
                         ),
                       ),
-                      DataCell(Text(item["employee_id"] ?? "-")),
-                      DataCell(Text(item["name"] ?? "-")),
-                      DataCell(Text(item["phone"] ?? "-")),
-                      DataCell(Text(item["email"] ?? "-")),
-                      DataCell(Text(item["designation"] ?? "-")),
-                      DataCell(Text(item["status"] ?? "-")),
+
+                      DataCell(AutoText(item["name"] ?? "-")), // Farmers
+                      DataCell(AutoText(item["phone"] ?? "-")), // Phone
+                      DataCell(AutoText(item["zip_code"] ?? "-")), // Pin Code
+                      DataCell(AutoText(item["state"] ?? "-")), // State
+                      DataCell(AutoText(item["village"] ?? "-")), // Village
+                      DataCell(AutoText(item["hamlet"] ?? "-")), // Hamlet
+                      DataCell(
+                        AutoText(item["total_cultivable_land"] ?? "-"),
+                      ), // Total Land
+
+                      DataCell(
+                        AutoText(item["created_by_user_name"] ?? "-"),
+                      ), // Created By
+                      // Created By
+                      DataCell(
+                        AutoText(item["created_at"] ?? "-"),
+                      ), // Created At
                       DataCell(
                         Row(
                           children: [
@@ -713,45 +847,38 @@ class _KrishiSakhiScreenState extends State<KrishiSakhiScreen> {
 
                             const SizedBox(width: 8),
 
-                            // 📊 Analysis Button (linked with FarmerWizard)
                             IconButton(
                               icon: const Icon(
                                 Icons.analytics,
                                 color: Colors.green,
                               ),
-                              onPressed: () async {
-                                final result = await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => FarmerWizard(
-                                      farmerId: item["id"].toString(),
-                                    ),
-                                  ),
-                                );
-
-                                if (result == true) {
-                                  _fetchData(); // ✅ Refresh after Finish
-                                }
-                              },
-                            ),
-
-                            IconButton(
-                              icon: const Icon(
-                                Icons.dashboard,
-                                color: Colors.orange,
-                              ),
-                              tooltip: "Farmer Dashboard",
+                              tooltip: "View Audits",
                               onPressed: () {
-                                Navigator.push(
+                                _showAuditSheet(
                                   context,
-                                  MaterialPageRoute(
-                                    builder: (_) => FarmerDashboardScreen(
-                                      farmerId: item["id"],
-                                    ),
-                                  ),
+                                  item["id"], // farmerId
+                                  item["name"] ?? "", // farmerName
                                 );
                               },
                             ),
+
+                            // IconButton(
+                            //   icon: const Icon(
+                            //     Icons.dashboard,
+                            //     color: Colors.orange,
+                            //   ),
+                            //   tooltip: "Farmer Dashboard",
+                            //   onPressed: () {
+                            //     Navigator.push(
+                            //       context,
+                            //       MaterialPageRoute(
+                            //         builder: (_) => FarmerDashboardScreen(
+                            //           farmerId: item["id"],
+                            //         ),
+                            //       ),
+                            //     );
+                            //   },
+                            // ),
                           ],
                         ),
                       ),

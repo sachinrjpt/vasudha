@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/api_service.dart';
+import 'package:vasudha/widgets/auto_text.dart';
 
 class RegistrationForm extends StatefulWidget {
   const RegistrationForm({super.key});
@@ -22,13 +23,16 @@ class _RegistrationFormState extends State<RegistrationForm> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _zipCodeController = TextEditingController();
-  final TextEditingController _landAreaController = TextEditingController();
+  final TextEditingController _totalCultivableLandController =
+      TextEditingController();
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _districtController = TextEditingController();
   final TextEditingController _stateController = TextEditingController();
   final TextEditingController _blockController = TextEditingController();
   final TextEditingController _villageController = TextEditingController();
   final TextEditingController _hamletController = TextEditingController();
+
+  bool _passwordVisible = false;
 
   File? _profileImageFile;
   Uint8List? _profileImageBytes;
@@ -41,8 +45,9 @@ class _RegistrationFormState extends State<RegistrationForm> {
 
   Future<void> _pickImage() async {
     if (kIsWeb) {
-      FilePickerResult? result =
-          await FilePicker.platform.pickFiles(type: FileType.image);
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+      );
       if (result != null && result.files.first.bytes != null) {
         setState(() {
           _profileImageBytes = result.files.first.bytes!;
@@ -52,15 +57,15 @@ class _RegistrationFormState extends State<RegistrationForm> {
       final source = await showDialog<ImageSource>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text("Select Image Source"),
+          title: AutoText("Select Image Source"),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, ImageSource.camera),
-              child: const Text("Camera"),
+              child: AutoText("Camera"),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, ImageSource.gallery),
-              child: const Text("Gallery"),
+              child: AutoText("Gallery"),
             ),
           ],
         ),
@@ -112,7 +117,8 @@ class _RegistrationFormState extends State<RegistrationForm> {
             child: Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Form(
@@ -126,210 +132,295 @@ class _RegistrationFormState extends State<RegistrationForm> {
                             radius: 40,
                             backgroundImage: kIsWeb
                                 ? (_profileImageBytes != null
-                                    ? MemoryImage(_profileImageBytes!)
-                                    : const NetworkImage(
-                                        "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
-                                      ) as ImageProvider)
+                                      ? MemoryImage(_profileImageBytes!)
+                                      : const NetworkImage(
+                                              "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                                            )
+                                            as ImageProvider)
                                 : (_profileImageFile != null
-                                    ? FileImage(_profileImageFile!)
-                                    : const NetworkImage(
-                                        "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
-                                      ) as ImageProvider),
+                                      ? FileImage(_profileImageFile!)
+                                      : const NetworkImage(
+                                              "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                                            )
+                                            as ImageProvider),
                           ),
                           const SizedBox(width: 16),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
+                              AutoText(
                                 "Upload Profile Image",
                                 style: TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 16),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
                               ),
                               const SizedBox(height: 5),
                               SizedBox(
                                 width: 200,
                                 child: OutlinedButton(
                                   onPressed: _pickImage,
-                                  child: const Text("Choose File"),
+                                  child: AutoText("Choose File"),
                                 ),
                               ),
                             ],
-                          )
+                          ),
                         ],
                       ),
                       const SizedBox(height: 30),
 
-                      LayoutBuilder(builder: (context, constraints) {
-                        bool isWide = constraints.maxWidth > 700;
-                        return Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children: [
-                            _buildTextField("Name *", isWide,
-                                controller: _nameController),
-                            _buildTextField("Mobile Number *", isWide,
-                                controller: _mobileController),
-                            _buildTextField("Email *", isWide,
-                                controller: _emailController),
-                            _buildDropdown("Gender *", isWide),
-
-                            // 🔹 Pin Code field
-                            SizedBox(
-                              width: isWide ? 450 : double.infinity,
-                              child: TextFormField(
-                                controller: _zipCodeController,
-                                keyboardType: TextInputType.number,
-                                maxLength: 6,
-                                decoration: const InputDecoration(
-                                  labelText: "Pin Code *",
-                                  border: OutlineInputBorder(),
-                                  counterText: "",
-                                  contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 10),
-                                ),
-                                onChanged: (val) {
-                                  if (val.length == 6) {
-                                    _fetchVillages(val);
-                                  }
-                                },
-                                validator: (value) => (value == null || value.isEmpty)
-                                    ? "Required"
-                                    : null,
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          bool isWide = constraints.maxWidth > 700;
+                          return Wrap(
+                            spacing: 16,
+                            runSpacing: 16,
+                            children: [
+                              _buildTextField(
+                                "Name *",
+                                isWide,
+                                controller: _nameController,
                               ),
-                            ),
-
-                            SizedBox(
-                              width: isWide ? 450 : double.infinity,
-                              child: DropdownButtonFormField<String>(
-                                value: _selectedVillage,
-                                decoration: const InputDecoration(
-                                  labelText: "Village *",
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 10),
-                                ),
-                                items: _villageList
-                                    .map<DropdownMenuItem<String>>((v) {
-                                  final villageName = v["Name"] ?? "Unknown";
-                                  return DropdownMenuItem(
-                                    value: villageName,
-                                    child: Text(villageName),
-                                  );
-                                }).toList(),
-                                onChanged: (val) {
-  final match = _villageList.firstWhere(
-    (e) => e["Name"] == val,
-    orElse: () => {
-      "District": "",
-      "State": "",
-      "Block": "",
-      "Pincode": ""
-    },
-  );
-
-  setState(() {
-    _selectedVillage = val;
-    _villageController.text = val ?? "";
-
-    _districtController.text = match["District"] ?? "";
-    _stateController.text = match["State"] ?? "";
-    _blockController.text = match["Block"] ?? "";
-    _zipCodeController.text = match["Pincode"] ?? "";
-  });
-},
-
-                                validator: (value) =>
-                                    (value == null || value.isEmpty)
-                                        ? "Required"
-                                        : null,
+                              _buildTextField(
+                                "Mobile Number *",
+                                isWide,
+                                controller: _mobileController,
                               ),
-                            ),
+                              _buildTextField(
+                                "Email *",
+                                isWide,
+                                controller: _emailController,
+                              ),
+                              _buildDropdown("Gender *", isWide),
 
-                            _buildTextField("Address *", isWide,
-                                controller: _addressController),
+                              // 🔹 Pin Code field
+                              SizedBox(
+                                width: isWide ? 450 : double.infinity,
+                                child: TextFormField(
+                                  controller: _zipCodeController,
+                                  keyboardType: TextInputType.number,
+                                  maxLength: 6,
+                                  decoration: const InputDecoration(
+                                    label: AutoText("Pin Code *"),
+                                    border: OutlineInputBorder(),
+                                    counterText: "",
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  onChanged: (val) {
+                                    if (val.length == 6) {
+                                      _fetchVillages(val);
+                                    }
+                                  },
+                                  validator: (value) =>
+                                      (value == null || value.isEmpty)
+                                      ? "Required"
+                                      : null,
+                                ),
+                              ),
 
-                            // District/State/Block auto-fill
-                            _buildTextField("District *", isWide,
-                                controller: _districtController, readOnly: true),
-                            _buildTextField("State *", isWide,
-                                controller: _stateController, readOnly: true),
-                            _buildTextField("Block *", isWide,
-                                controller: _blockController, readOnly: true),
+                              SizedBox(
+                                width: isWide ? 450 : double.infinity,
+                                child: DropdownButtonFormField<String>(
+                                  value: _selectedVillage,
+                                  decoration: const InputDecoration(
+                                    label: AutoText("Village *"),
+                                    border: OutlineInputBorder(),
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  items: _villageList
+                                      .map<DropdownMenuItem<String>>((v) {
+                                        final villageName =
+                                            v["Name"] ?? "Unknown";
+                                        return DropdownMenuItem(
+                                          value: villageName,
+                                          child: AutoText(villageName),
+                                        );
+                                      })
+                                      .toList(),
+                                  onChanged: (val) {
+                                    final match = _villageList.firstWhere(
+                                      (e) => e["Name"] == val,
+                                      orElse: () => {
+                                        "District": "",
+                                        "State": "",
+                                        "Block": "",
+                                        "Pincode": "",
+                                      },
+                                    );
 
-                            // 🔹 Village dropdown (single copy only)
-                            
+                                    setState(() {
+                                      _selectedVillage = val;
+                                      _villageController.text = val ?? "";
 
-                            _buildTextField("Land Area *", isWide,
-                                controller: _landAreaController),
-                            _buildTextField("Hamlet *", isWide,
-                                controller: _hamletController),
-                            _buildTextField("Password *", isWide,
-                                controller: _passwordController,
-                                obscure: true),
-                          ],
-                        );
-                      }),
+                                      _districtController.text =
+                                          match["District"] ?? "";
+                                      _stateController.text =
+                                          match["State"] ?? "";
+                                      _blockController.text =
+                                          match["Block"] ?? "";
+                                      _zipCodeController.text =
+                                          match["Pincode"] ?? "";
+                                    });
+                                  },
+
+                                  validator: (value) =>
+                                      (value == null || value.isEmpty)
+                                      ? "Required"
+                                      : null,
+                                ),
+                              ),
+
+                              _buildTextField(
+                                "Address *",
+                                isWide,
+                                controller: _addressController,
+                              ),
+
+                              // District/State/Block auto-fill
+                              _buildTextField(
+                                "District *",
+                                isWide,
+                                controller: _districtController,
+                                readOnly: true,
+                              ),
+                              _buildTextField(
+                                "State *",
+                                isWide,
+                                controller: _stateController,
+                                readOnly: true,
+                              ),
+                              _buildTextField(
+                                "Block *",
+                                isWide,
+                                controller: _blockController,
+                                readOnly: true,
+                              ),
+
+                              // 🔹 Village dropdown (single copy only)
+                              _buildTextField(
+                                "Total Cultivable Land Area *", // Updated label
+                                isWide,
+                                controller:
+                                    _totalCultivableLandController, // Updated controller
+                              ),
+                              _buildTextField(
+                                "Hamlet *",
+                                isWide,
+                                controller: _hamletController,
+                              ),
+                              SizedBox(
+                                width: isWide ? 450 : double.infinity,
+                                child: TextFormField(
+                                  controller: _passwordController,
+                                  obscureText:
+                                      !_passwordVisible, // <-- Toggle this
+                                  decoration: InputDecoration(
+                                    label: AutoText("Password *"),
+                                    border: const OutlineInputBorder(),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _passwordVisible
+                                            ? Icons.visibility
+                                            : Icons.visibility_off,
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _passwordVisible = !_passwordVisible;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  validator: (value) =>
+                                      (value == null || value.isEmpty)
+                                      ? "Required"
+                                      : null,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                       const SizedBox(height: 30),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           OutlinedButton(
                             onPressed: () {},
-                            child: const Text("Cancel"),
+                            child: AutoText("Cancel"),
                           ),
                           const SizedBox(width: 10),
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white),
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.white,
+                            ),
                             onPressed: () async {
-  if (_formKey.currentState!.validate()) {
-    // Show loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
+                              if (_formKey.currentState!.validate()) {
+                                // Show loading
+                                showDialog(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  builder: (_) => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                );
 
-    final result = await ApiService.storeEmployee(
-      name: _nameController.text,
-      phone: _mobileController.text,   // ✅ phone not mobile
-      email: _emailController.text,
-      password: _passwordController.text,
-      zipCode: _zipCodeController.text,
-      state: _stateController.text,     // ✅ new
-      district: _districtController.text, // ✅ new
-      block: _blockController.text,       // ✅ new
-      village: _villageController.text,   // ✅ new
-      halmet: _hamletController.text,     // ✅ new
-      address: _addressController.text,   // ✅ new
-      landArea: _landAreaController.text,
-      profileImageBytes: _profileImageBytes,
-      profileImageFile: _profileImageFile,
-    );
+                                final result = await ApiService.storeEmployee(
+                                  name: _nameController.text,
+                                  phone: _mobileController
+                                      .text, // ✅ phone not mobile
+                                  email: _emailController.text,
+                                  password: _passwordController.text,
+                                  zipCode: _zipCodeController.text,
+                                  state: _stateController.text, // ✅ new
+                                  district: _districtController.text, // ✅ new
+                                  block: _blockController.text, // ✅ new
+                                  village: _villageController.text, // ✅ new
+                                  halmet: _hamletController.text, // ✅ new
+                                  address: _addressController.text, // ✅ new
+                                  totalCultivableLand:
+                                      _totalCultivableLandController.text,
+                                  profileImageBytes: _profileImageBytes,
+                                  profileImageFile: _profileImageFile,
+                                );
 
-    Navigator.pop(context); // Close loading
+                                Navigator.pop(context); // Close loading
 
-    if (result['ok'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Employee added successfully!")),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result['message'] ?? "Failed to add employee",
-          ),
-        ),
-      );
-    }
-  }
-},
+                                if (result['ok'] == true) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: AutoText(
+                                        "Employee added successfully!",
+                                      ),
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        result['message'] ??
+                                            "Failed to add employee",
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
 
-                            child: const Text("Save"),
+                            child: AutoText("Save"),
                           ),
                         ],
-                      )
+                      ),
                     ],
                   ),
                 ),
@@ -342,21 +433,27 @@ class _RegistrationFormState extends State<RegistrationForm> {
   }
 
   // Reusable text field
-  Widget _buildTextField(String label, bool isWide,
-      {bool obscure = false,
-      bool readOnly = false,
-      TextEditingController? controller}) {
+  Widget _buildTextField(
+    String label,
+    bool isWide, {
+    bool obscure = false,
+    bool readOnly = false,
+    TextEditingController? controller,
+  }) {
     return SizedBox(
       width: isWide ? 450 : double.infinity,
       child: TextFormField(
+        key: ValueKey(label),
         controller: controller,
         obscureText: obscure,
         readOnly: readOnly,
         decoration: InputDecoration(
-          labelText: label,
+          label: AutoText(label),
           border: const OutlineInputBorder(),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
         ),
         validator: (value) =>
             (value == null || value.isEmpty) ? "Required" : null,
@@ -371,15 +468,17 @@ class _RegistrationFormState extends State<RegistrationForm> {
       child: DropdownButtonFormField<String>(
         value: _selectedGender,
         decoration: InputDecoration(
-          labelText: label,
+          label: AutoText(label),
           border: const OutlineInputBorder(),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
         ),
         items: const [
-          DropdownMenuItem(value: "Male", child: Text("Male")),
-          DropdownMenuItem(value: "Female", child: Text("Female")),
-          DropdownMenuItem(value: "Other", child: Text("Other")),
+          DropdownMenuItem(value: "Male", child: AutoText("Male")),
+          DropdownMenuItem(value: "Female", child: AutoText("Female")),
+          DropdownMenuItem(value: "Other", child: AutoText("Other")),
         ],
         onChanged: (value) {
           setState(() {

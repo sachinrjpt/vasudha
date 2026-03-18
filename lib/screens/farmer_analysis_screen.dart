@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:vasudha/widgets/auto_text.dart';
 
 class FarmerAnalysisScreen extends StatelessWidget {
   final List<Map<String, String>> farmers = [
     {
       "sn": "1",
-      "photo":
-          "https://via.placeholder.com/50", // replace with your image URL
+      "photo": "https://via.placeholder.com/50",
       "name": "kaka",
       "phone": "1234567895",
       "pincode": "201010",
@@ -44,7 +44,7 @@ class FarmerAnalysisScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Farmers Analysis"),
+        title: AutoText("Farmers Analysis"),
         backgroundColor: Colors.green,
       ),
       body: SingleChildScrollView(
@@ -52,44 +52,45 @@ class FarmerAnalysisScreen extends StatelessWidget {
         scrollDirection: Axis.horizontal, // ✅ for desktop wide table
         child: DataTable(
           border: TableBorder.all(color: Colors.grey.shade300),
-          headingRowColor:
-              WidgetStateProperty.all(Colors.green.shade50), // header bg
+          headingRowColor: WidgetStateProperty.all(
+            Colors.green.shade50,
+          ), // header bg
           columns: const [
-            DataColumn(label: Text("S/N")),
-            DataColumn(label: Text("Photograph")),
-            DataColumn(label: Text("Farmers")),
-            DataColumn(label: Text("Phone")),
-            DataColumn(label: Text("Pin Code")),
-            DataColumn(label: Text("State")),
-            DataColumn(label: Text("Village")),
-            DataColumn(label: Text("Hamlet")),
-            DataColumn(label: Text("Total Cultivable Land")),
-            DataColumn(label: Text("Action")),
+            DataColumn(label: AutoText("S/N")),
+            DataColumn(label: AutoText("Photograph")),
+            DataColumn(label: AutoText("Farmers")),
+            DataColumn(label: AutoText("Phone")),
+            DataColumn(label: AutoText("Pin Code")),
+            DataColumn(label: AutoText("State")),
+            DataColumn(label: AutoText("Village")),
+            DataColumn(label: AutoText("Hamlet")),
+            DataColumn(label: AutoText("Total Cultivable Land")),
+            DataColumn(label: AutoText("Action")),
           ],
           rows: farmers.map((farmer) {
             return DataRow(
               cells: [
-                DataCell(Text(farmer["sn"] ?? "-")),
+                DataCell(AutoText(farmer["sn"] ?? "-")),
                 DataCell(
                   CircleAvatar(
                     backgroundImage: NetworkImage(farmer["photo"] ?? ""),
                     radius: 20,
                   ),
                 ),
-                DataCell(Text(farmer["name"] ?? "-")),
-                DataCell(Text(farmer["phone"] ?? "-")),
-                DataCell(Text(farmer["pincode"] ?? "-")),
-                DataCell(Text(farmer["state"] ?? "-")),
-                DataCell(Text(farmer["village"] ?? "-")),
-                DataCell(Text(farmer["hamlet"] ?? "-")),
-                DataCell(Text(farmer["land"] ?? "-")),
+                DataCell(AutoText(farmer["name"] ?? "-")),
+                DataCell(AutoText(farmer["phone"] ?? "-")),
+                DataCell(AutoText(farmer["pincode"] ?? "-")),
+                DataCell(AutoText(farmer["state"] ?? "-")),
+                DataCell(AutoText(farmer["village"] ?? "-")),
+                DataCell(AutoText(farmer["hamlet"] ?? "-")),
+                DataCell(AutoText(farmer["land"] ?? "-")),
                 DataCell(
                   IconButton(
                     icon: const Icon(Icons.edit, color: Colors.blue),
                     onPressed: () {
                       // TODO: Edit action here
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Edit clicked")),
+                        SnackBar(content: AutoText("Edit clicked")),
                       );
                     },
                   ),

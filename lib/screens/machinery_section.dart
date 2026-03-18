@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/master_service.dart';
+import 'package:vasudha/widgets/auto_text.dart';
 
 class MachinerySection extends StatefulWidget {
   final bool isUpdateMode;
@@ -47,10 +48,10 @@ class _MachinerySectionState extends State<MachinerySection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Machinery", style: TextStyle(fontWeight: FontWeight.bold)),
+        AutoText("Machinery", style: TextStyle(fontWeight: FontWeight.bold)),
         ...machineries.entries.map((entry) {
           return CheckboxListTile(
-            title: Text(entry.value),
+            title: AutoText(entry.value),
             value: selectedMachineries.contains(entry.key),
             onChanged: (val) {
               setState(() {
@@ -67,7 +68,7 @@ class _MachinerySectionState extends State<MachinerySection> {
         if (widget.isUpdateMode)
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
-            child: Text(
+            child: AutoText(
               "Selected Machinery: $selectedMachineryNames",
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             ),

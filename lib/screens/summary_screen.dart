@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart'; // ✅ apne service file ka sahi path
+import 'package:vasudha/widgets/auto_text.dart';
 
 class SummaryScreen extends StatefulWidget {
-  final String farmerId;
+  final String plotId;
+  final Map<String, dynamic> moduleData;
 
-  const SummaryScreen({super.key, required this.farmerId});
+  const SummaryScreen({
+    super.key,
+    required this.plotId,
+    required this.moduleData,
+  });
 
   @override
   State<SummaryScreen> createState() => _SummaryScreenState();
@@ -26,104 +32,165 @@ class _SummaryScreenState extends State<SummaryScreen>
     print(summary);
   }
 
-  Future<void> _fetchSummary() async {
-    final res = await ApiService.getFarmerSummary(widget.farmerId);
+  // Future<void> _fetchSummary() async {
+  //   final res = await ApiService.getFarmerSummary(widget.plotId);
 
-    if (res["ok"] == true) {
+  //   if (res["ok"] == true) {
+  //     setState(() {
+  //       summary = res["data"]["summary"] ?? {};
+  //       perAcre = res["data"]["per_acre"] ?? {};
+  //       isLoading = false;
+  //     });
+  //   } else {
+  //     setState(() => isLoading = false);
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(content: Text(res["message"] ?? "Failed to load summary")),
+  //     );
+  //   }
+  // }
+
+  Future<void> _fetchSummary() async {
+    try {
+      final res = await ApiService.getFarmerSummary(widget.plotId);
+
+      if (res["ok"] == true && res["data"] != null) {
+        setState(() {
+          summary = res["data"]["summary"] ?? {};
+          perAcre = res["data"]["per_acre"] ?? {};
+          isLoading = false;
+        });
+      } else {
+        // 🔥 Audit not created yet → show empty state
+        setState(() {
+          summary = {};
+          perAcre = {};
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      // 🔥 Network / ModelNotFoundException / 500 error
       setState(() {
-        summary = res["data"]["summary"] ?? {};
-        perAcre = res["data"]["per_acre"] ?? {};
+        summary = {};
+        perAcre = {};
         isLoading = false;
       });
-    } else {
-      setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res["message"] ?? "Failed to load summary")),
-      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: const Color(0xffF8FAFC),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 800),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      // --- Tabs ---
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius:
-                              const BorderRadius.vertical(top: Radius.circular(16)),
-                        ),
-                        child: TabBar(
-                          controller: _tabController,
-                          labelColor: Colors.white,
-                          unselectedLabelColor: Colors.black87,
-                          indicator: BoxDecoration(
-                            color: Colors.green,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          tabs: const [
-                            Tab(text: "Summary"),
-                            Tab(text: "Per Acre Results"),
-                          ],
-                        ),
-                      ),
+          : (summary.isEmpty && perAcre.isEmpty)
+          ? _buildEmptyState()
+          : Column(
+              children: [
+                const SizedBox(height: 16),
 
-                      // --- Tab Content ---
-                      SizedBox(
-                        height: 600,
-                        child: TabBarView(
-                          controller: _tabController,
-                          children: [
-                            _buildSummaryTab(),
-                            _buildPerAcreTab(),
-                          ],
-                        ),
-                      ),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: TabBar(
+                    controller: _tabController,
+                    indicator: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    labelColor: Colors.white,
+                    unselectedLabelColor: Colors.black87,
+                    dividerColor: Colors.transparent,
+                    tabs: [
+                      Tab(child: AutoText("Summary")),
+                      Tab(child: AutoText("Per Acre Results")),
                     ],
                   ),
                 ),
-              ),
+
+                const SizedBox(height: 10),
+
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [_buildSummaryTab(), _buildPerAcreTab()],
+                  ),
+                ),
+              ],
             ),
     );
   }
 
   // ✅ Summary Tab - Matches Laravel JSON keys exactly
   Widget _buildSummaryTab() {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Wrap(
         runSpacing: 16,
         spacing: 16,
         children: [
+          _buildField(
+            "Total Labour Cost (Hired + family labour)",
+            summary["Total Labour Cost (Hired + family labour)"],
+          ),
+          _buildField(
+            "Total Machinery,Energy and other costs",
+            summary["Total Machinery,Energy and other costs"],
+          ),
           _buildField("Total Seed Cost", summary["Total Seed Cost"]),
-          _buildField("Total Chemical Fertiliser Cost", summary["Total Chemical Fertiliser Cost"]),
-          _buildField("Total Chemical Pesticide Cost", summary["Total Chemical Pesticide Cost"]),
-          _buildField("Total Cost Sustainable Agriculture - Fertilisers", summary["Total Cost Sustainable Agriculture - Fertilisers"]),
-          _buildField("Total Cost Sustainable Agriculture - Pesticides", summary["Total Cost Sustainable Agriculture - Pesticides"]),
-          _buildField("Total value of the Produce", summary["Total value of the Produce"]),
-          _buildField("Total input cost", summary["Total input cost"]),
-          _buildField("Net income as per the plot size", summary["Net income as per the plot size"]),
+          _buildField(
+            "Total Chemical Fertiliser Cost",
+            summary["Total Chemical Fertiliser Cost"],
+          ),
+          _buildField(
+            "Total Chemical Pesticide Cost",
+            summary["Total Chemical Pesticide Cost"],
+          ),
+          _buildField(
+            "Total Cost Sustainable Agriculture - Fertilisers",
+            summary["Total Cost Sustainable Agriculture - Fertilisers"],
+          ),
+          _buildField(
+            "Total Cost Sustainable Agriculture - Pesticides",
+            summary["Total Cost Sustainable Agriculture - Pesticides"],
+          ),
+          _buildField(
+            "Total value of the Produce",
+            summary["Total value of the Produce"],
+          ),
+          _buildField(
+            "Total Expense (Rs)",
+            summary["Total Expense(Rs)"], // ✅ FIXED KEY
+          ),
+          _buildField(
+            "Net income as per the plot size",
+            summary["Net income as per the plot size"],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.receipt_long, size: 60, color: Colors.grey),
+          const SizedBox(height: 16),
+          const AutoText(
+            "No Audit Summary Available",
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          AutoText(
+            "Please complete and save the audit first.",
+            style: TextStyle(color: Colors.grey[600]),
+          ),
         ],
       ),
     );
@@ -131,18 +198,37 @@ class _SummaryScreenState extends State<SummaryScreen>
 
   // ✅ Per Acre Results Tab
   Widget _buildPerAcreTab() {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Wrap(
         runSpacing: 16,
         spacing: 16,
         children: [
-          _buildField("Total production per acre (in KG)", perAcre["Total production per acre (in KG)"]),
-          _buildField("Total value of the Produce per acre", perAcre["Total value of the Produce per acre"]),
-          _buildField("Input cost per acre (Inputs without labour)", perAcre["Input cost per acre (Inputs without labour)"]),
-          _buildField("Labour costs per acre (Hired labour and household labour)", perAcre["Labour costs per acre (Hired labour and household labour)"]),
-          _buildField("Total input cost per acre", perAcre["Total input cost per acre"]),
+          _buildField(
+            "Total production per acre (in KG)",
+            perAcre["Total production per acre (in KG)"],
+          ),
+          _buildField(
+            "Total value of the Produce per acre",
+            perAcre["Total value of the Produce per acre"],
+          ),
+          _buildField(
+            "Agricultural Input Cost per acre",
+            perAcre["Agricultural Input Cost per acre"], // ✅ FIXED
+          ),
+          _buildField(
+            "Labour costs per acre (Hired labour and household labour)",
+            perAcre["Labour costs per acre (Hired labour and household labour)"],
+          ),
+          _buildField(
+            "Total Expense per acre (Rs)",
+            perAcre["Total Expense per acre (Rs)"], // ✅ FIXED
+          ),
           _buildField("Net income per acre", perAcre["Net income per acre"]),
+          _buildField(
+            "Total Machinery,Energy and other costs per acre",
+            perAcre["Total Machinery,Energy and other costs per acre"],
+          ),
         ],
       ),
     );
@@ -151,20 +237,36 @@ class _SummaryScreenState extends State<SummaryScreen>
   // 🧱 Reusable TextField (Read-only)
   Widget _buildField(String label, dynamic value) {
     final textValue = value != null ? value.toString() : "0.00";
-    return SizedBox(
+
+    return Container(
       width: 250,
-      child: TextField(
-        enabled: false,
-        controller: TextEditingController(text: textValue),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: const TextStyle(fontSize: 13),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AutoText(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Colors.black,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        ),
+          const SizedBox(height: 6),
+          AutoText(
+            textValue,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+        ],
       ),
     );
   }

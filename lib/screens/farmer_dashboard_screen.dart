@@ -14,17 +14,18 @@ import 'package:pdf/pdf.dart'; // ✅ Add this line
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:whatsapp_share2/whatsapp_share2.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:share_plus/share_plus.dart';
+import 'package:vasudha/widgets/auto_text.dart';
 
 class FarmerDashboardScreen extends StatefulWidget {
-  final int farmerId;
-  const FarmerDashboardScreen({Key? key, required this.farmerId})
+  final int auditId;
+  const FarmerDashboardScreen({Key? key, required this.auditId})
     : super(key: key);
 
   @override
@@ -34,6 +35,7 @@ class FarmerDashboardScreen extends StatefulWidget {
 class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   bool _loading = true;
   bool _saving = false;
+  String? profileImageUrl; // 👈 Add this line
 
   Map<String, dynamic>? farmer;
   Map<String, dynamic>? metrics;
@@ -89,7 +91,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
       if (token == null || token.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No token found. Please log in again.')),
+          SnackBar(content: AutoText('No token found. Please log in again.')),
         );
         setState(() => _loading = false);
         return;
@@ -97,7 +99,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
       final response = await http.get(
         Uri.parse(
-          'https://vasudha.app/api/farmers/${widget.farmerId}/dashboard',
+          'https://vasudha.app/api/farmer-audit/${widget.auditId}/dashboard',
         ),
         headers: {
           'Accept': 'application/json',
@@ -111,23 +113,17 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         if (jsonData['status'] == 'success') {
           Map<String, dynamic> parseMetricSection(dynamic section) {
             if (section is! Map) return {};
+
             final Map<String, dynamic> out = {};
+
             section.forEach((metricName, metricVal) {
-              if (metricVal is Map) {
-                out[metricName.toString()] = [
-                  metricVal['current'] ?? '-',
-                  metricVal['year1'] ?? '-',
-                  metricVal['year2'] ?? '-',
-                  metricVal['year3'] ?? '-',
-                ];
-              } else if (metricVal is List) {
-                // Handles [30, 27, 30, 31.5]
+              if (metricVal is List) {
                 out[metricName.toString()] = List.from(metricVal);
               } else {
-                // Handles single numbers or strings
                 out[metricName.toString()] = [metricVal, '-', '-', '-'];
               }
             });
+
             return out;
           }
 
@@ -135,45 +131,39 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
             farmer = Map<String, dynamic>.from(jsonData['farmer'] ?? {});
             metrics = parseMetricSection(jsonData['metrics']);
 
-            // ✅ Restore missing "Yield (Farmer’s Unit/acre)" row if absent
-            if (metrics != null &&
-                !metrics!.containsKey('Yield (Farmer’s Unit/acre)') &&
-                metrics!.containsKey('Yield (kg/acre)')) {
-              metrics!['Yield (Farmer’s Unit/acre)'] = List.from(
-                metrics!['Yield (kg/acre)'],
-              );
-            }
-
             environmental = parseMetricSection(
-              jsonData['environmental_metrics'],
+              jsonData['environmentalMetrics'],
             );
-            soilHealth = Map<String, dynamic>.from(
-              jsonData['soil_health_metrics'] ?? {},
+
+            soilHealth = parseMetricSection(jsonData['soilHealthMetrics']);
+
+            climateChange = parseMetricSection(
+              jsonData['climateChangeMetrics'],
             );
-            climateChange = Map<String, dynamic>.from(
-              jsonData['climate_change_metrics'] ?? {},
-            );
+            profileImageUrl = farmer?['profile_image']?.toString();
           });
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to load dashboard data')),
+            SnackBar(content: AutoText('Failed to load dashboard data')),
           );
         }
       } else if (response.statusCode == 401) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unauthorized. Please log in again.')),
+          SnackBar(content: AutoText('Unauthorized. Please log in again.')),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to fetch dashboard: ${response.statusCode}'),
+            content: AutoText(
+              'Failed to fetch dashboard: ${response.statusCode}',
+            ),
           ),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error fetching dashboard: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: AutoText('Error fetching dashboard: $e')),
+      );
     }
     setState(() => _loading = false);
   }
@@ -207,7 +197,8 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       final imageUrl =
           farmer?['profile_image'] != null &&
               farmer!['profile_image'].toString().isNotEmpty
-          ? 'https://vasudha.app/${farmer!['profile_image']}'
+          ? farmer!['profile_image']
+                .toString() // <- ✅ remove 'https://vasudha.app/' prefix
           : null;
 
       if (imageUrl != null) {
@@ -230,10 +221,17 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
           theme: theme, // 👈 apply emoji fallback theme here
           build: (context) => [
             _buildPdfHeader(farmerImage, boldFont),
+            _buildPdfGreeting(boldFont),
+            _buildPdfReward(boldFont),
+            _buildPdfEnvironment(boldFont),
             pw.SizedBox(height: 20),
 
+            // pw.Column(
+            //   crossAxisAlignment: pw.CrossAxisAlignment.start,
+            //   children: [
+            pw.NewPage(),
             pw.Text(
-              "📈 Dashboard Charts", // 👈 emoji will now render properly
+              "📈 Dashboard Charts",
               style: pw.TextStyle(
                 font: boldFont,
                 fontSize: 13,
@@ -243,7 +241,6 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
             ),
             pw.SizedBox(height: 10),
 
-            // ✅ Charts section
             for (var img in charts)
               pw.Container(
                 margin: const pw.EdgeInsets.only(bottom: 12),
@@ -255,10 +252,19 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 ),
               ),
 
+            // ],
+            // ),
             pw.Divider(),
 
             // ✅ Tables (same as before)
-            _buildPdfTable('Farmer Metrics', metrics, boldFont),
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.SizedBox(height: 10),
+                pw.NewPage(),
+                _buildPdfTable('Farmer Metrics', metrics, boldFont),
+              ],
+            ),
             pw.SizedBox(height: 15),
             _buildPdfTable('Environmental Metrics', environmental, boldFont),
             pw.SizedBox(height: 15),
@@ -288,20 +294,11 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
       // For Mobile/Desktop
       await Printing.sharePdf(bytes: pdfBytes, filename: fileName);
-
-      // (Optional) For Web:
-      // import 'dart:html' as html;
-      // final blob = html.Blob([pdfBytes], 'application/pdf');
-      // final url = html.Url.createObjectUrlFromBlob(blob);
-      // final anchor = html.AnchorElement(href: url)
-      //   ..setAttribute("download", fileName)
-      //   ..click();
-      // html.Url.revokeObjectUrl(url);
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('❌ PDF export failed: $e')));
+        ).showSnackBar(SnackBar(content: AutoText('❌ PDF export failed: $e')));
       }
     }
   }
@@ -377,21 +374,24 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   Future<Uint8List?> _captureWidgetAsImage(Widget widget) async {
     try {
       final controller = ScreenshotController();
+
       final bytes = await controller.captureFromWidget(
         MediaQuery(
-          data: const MediaQueryData(),
-          child: MaterialApp(
-            debugShowCheckedModeBanner: false,
-            home: Material(
-              child: Directionality(
-                textDirection: TextDirection.ltr,
-                child: widget,
+          data: const MediaQueryData(), // 👈 required for fl_chart
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Material(
+              color: Colors.white,
+              child: Column(
+                mainAxisSize: MainAxisSize.min, // 👈 no extra height
+                children: [widget],
               ),
             ),
           ),
         ),
-        pixelRatio: 1.0,
+        pixelRatio: 2.0,
       );
+
       return bytes;
     } catch (e) {
       return null;
@@ -430,13 +430,141 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 '🌍 ${farmer?['state'] ?? '-'}, ${farmer?['district'] ?? '-'}',
                 style: normalStyle,
               ),
-              pw.Text(
-                'Plot ID: ${farmer?['plot_id'] ?? '-'}',
-                style: normalStyle,
-              ),
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfGreeting(pw.Font boldFont) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          "Namaste ${farmer?['name'] ?? 'Farmer'},",
+          style: pw.TextStyle(font: boldFont, fontSize: 14),
+        ),
+        pw.SizedBox(height: 6),
+        pw.Text(
+          "Thank you for your hard work for your land and family. "
+          "Our Vasudha tool shows you the rewards your dedication will bring "
+          "when you choose sustainable farming.",
+        ),
+        pw.SizedBox(height: 6),
+        pw.Text(
+          "This is a picture of the journey ahead for your farm in the "
+          "${metrics?['Season']?[0] ?? ''} season.",
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfReward(pw.Font boldFont) {
+    final netIncomeArr = _toList(metrics?['Net Income (₹/acre)'] ?? []);
+    final yieldArr = _toList(metrics?['Yield (kg/acre)'] ?? []);
+    final percArr = _toList(metrics?['Net Income Change (%)'] ?? []);
+
+    if (netIncomeArr.length < 4) {
+      return pw.SizedBox();
+    }
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.SizedBox(height: 15),
+        pw.Text(
+          "The Rewards for Your Family",
+          style: pw.TextStyle(font: boldFont, fontSize: 13),
+        ),
+        pw.SizedBox(height: 6),
+        pw.Text(
+          "Your dedication to sustainable farming will make your land stronger "
+          "and increase your income. This will bring more security and a better future for your family.",
+        ),
+        pw.SizedBox(height: 12),
+
+        pw.Text(
+          "In the first season of change, your Net Income is set to be "
+          "₹${netIncomeArr[1].toStringAsFixed(2)} per acre. "
+          "This is a big step forward, with a ${percArr[1].toStringAsFixed(2)}% increase from your current earnings. "
+          "We'll see a small dip in your yield to ${yieldArr[1]} kg/acre.",
+        ),
+        pw.SizedBox(height: 8),
+
+        pw.Text(
+          "By the second season, your net income will grow to "
+          "₹${netIncomeArr[2].toStringAsFixed(2)} per acre, "
+          "a wonderful ${percArr[2].toStringAsFixed(2)}% increase from today. "
+          "Your yield will be ${yieldArr[2]} kg/acre.",
+        ),
+        pw.SizedBox(height: 8),
+
+        pw.Text(
+          "By the third season, your farm will be thriving! "
+          "Net income will reach ₹${netIncomeArr[3].toStringAsFixed(2)} per acre, "
+          "a stunning ${percArr[3].toStringAsFixed(2)}% jump. "
+          "Yield will be ${yieldArr[3]} kg/acre.",
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfEnvironment(pw.Font boldFont) {
+    final waterSavedArr = environmental?['Water Saved per acre'] ?? [];
+    final waterRequirementArr =
+        environmental?['Water Requirement (liters) per acre'] ?? [];
+    final socArr =
+        soilHealth?['Soil Organic Carbon (SOC) Gain (kg/acre)'] ?? [];
+    final co2Arr = _toList(climateChange?['CO₂e Sequestered (kg/acre)'] ?? []);
+
+    double waterSaved = _extractNumber(waterSavedArr[1]);
+    double waterRequired = _extractNumber(waterRequirementArr[1]);
+    double soc = double.tryParse(socArr[3].toString()) ?? 0;
+    double co2 = co2Arr.length > 3 ? co2Arr[3] : 0;
+
+    int familyYears = (waterSaved / 5840).floor();
+    int carDistance = (co2 / 0.12).floor();
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.SizedBox(height: 15),
+        pw.Text(
+          "The Health of Your Land and Our Earth",
+          style: pw.TextStyle(font: boldFont, fontSize: 13),
+        ),
+        pw.SizedBox(height: 6),
+        pw.Text(
+          "Your hard work helps your family and also makes your land stronger. "
+          "It makes our planet healthier.",
+        ),
+        pw.SizedBox(height: 12),
+
+        if (waterSaved > 0 && waterRequired > 0)
+          pw.Text(
+            "Water: Your farm will save ${waterSaved.toStringAsFixed(0)} liters. "
+            "Enough drinking water for a family of four for over $familyYears years. "
+            "Total requirement: ${waterRequired.toStringAsFixed(0)} liters per acre.",
+          ),
+
+        if (soc > 0)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 6),
+            child: pw.Text(
+              "Soil Health: Your soil will gain ${soc.toStringAsFixed(0)} kg/acre of organic carbon.",
+            ),
+          ),
+
+        if (co2 > 0)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 6),
+            child: pw.Text(
+              "Climate Change Mitigation: Your farm will capture "
+              "${co2.toStringAsFixed(0)} kg of CO₂. "
+              "Equivalent to a car driving $carDistance kilometers.",
+            ),
+          ),
       ],
     );
   }
@@ -497,7 +625,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       final name = farmer?['name'] ?? 'Farmer';
       final phone = farmer?['phone'] ?? '-';
 
-      // 🧱 Step 1: Generate PDF (same as your export)
+      // 🧱 Step 1: Generate PDF
       final pdf = pw.Document();
 
       final regularFont = pw.Font.ttf(
@@ -509,361 +637,106 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       final emojiFont = pw.Font.ttf(
         await rootBundle.load("assets/fonts/NotoColorEmoji.ttf"),
       );
+
       final theme = pw.ThemeData.withFont(
         base: regularFont,
         bold: boldFont,
         fontFallback: [emojiFont],
       );
 
+      pw.ImageProvider? farmerImage;
+
+      final imageUrl =
+          farmer?['profile_image'] != null &&
+              farmer!['profile_image'].toString().isNotEmpty
+          ? farmer!['profile_image'].toString()
+          : null;
+
+      if (imageUrl != null) {
+        try {
+          final response = await http.get(Uri.parse(imageUrl));
+          if (response.statusCode == 200) {
+            farmerImage = pw.MemoryImage(response.bodyBytes);
+          }
+        } catch (_) {}
+      }
+
+      final charts = await _captureChartsAsImages();
+
       pdf.addPage(
-        pw.Page(
+        pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
           theme: theme,
-          build: (context) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                "👨‍🌾 Farmer Report",
-                style: pw.TextStyle(
-                  fontSize: 22,
-                  fontWeight: pw.FontWeight.bold,
-                ),
+          build: (context) => [
+            _buildPdfHeader(farmerImage, boldFont),
+            _buildPdfGreeting(boldFont),
+            _buildPdfReward(boldFont),
+            _buildPdfEnvironment(boldFont),
+            pw.SizedBox(height: 20),
+            pw.NewPage(),
+            pw.Text(
+              "📈 Dashboard Charts",
+              style: pw.TextStyle(
+                font: boldFont,
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.green800,
               ),
-              pw.SizedBox(height: 8),
-              pw.Text("Name: $name"),
-              pw.Text("📞 Phone: $phone"),
-              pw.SizedBox(height: 16),
-              pw.Text(
-                "Report generated automatically from the Farmer Dashboard.",
+            ),
+            pw.SizedBox(height: 10),
+            for (var img in charts)
+              pw.Container(
+                margin: const pw.EdgeInsets.only(bottom: 12),
+                height: 200,
+                child: pw.Image(pw.MemoryImage(img), fit: pw.BoxFit.contain),
               ),
-            ],
+            pw.NewPage(),
+            _buildPdfTable('Farmer Metrics', metrics, boldFont),
+            pw.SizedBox(height: 15),
+            _buildPdfTable('Environmental Metrics', environmental, boldFont),
+            pw.SizedBox(height: 15),
+            _buildPdfTable('Soil Health', soilHealth, boldFont),
+            pw.SizedBox(height: 15),
+            _buildPdfTable(
+              'Climate Change Mitigation',
+              climateChange,
+              boldFont,
+            ),
+          ],
+          footer: (context) => pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Page ${context.pageNumber} of ${context.pagesCount}',
+              style: pw.TextStyle(font: regularFont, fontSize: 9),
+            ),
           ),
         ),
       );
 
-      // 💾 Step 2: Save PDF locally
+      // 💾 Save PDF
       final bytes = await pdf.save();
       final dir = await getTemporaryDirectory();
       final filePath = '${dir.path}/Farmer_Report_$name.pdf';
       final file = File(filePath);
       await file.writeAsBytes(bytes);
 
-      // 💬 Step 3: WhatsApp message
       final msg =
           '''
 👨‍🌾 Farmer Dashboard - $name
 📞 Mobile: $phone
-📄 Please find attached your latest report from MakemyBiz.
+📄 Please find attached your latest report.
 ''';
 
-      // 🟢 Step 4: Share PDF via WhatsApp
-      try {
-        await WhatsappShare.shareFile(
-          text: msg,
-          filePath: [file.path],
-          phone: "", // optional: add '+91xxxxxxxxxx' for direct chat
-        );
-      } catch (e) {
-        // fallback if WhatsApp not installed
-        await Share.shareXFiles([XFile(file.path)], text: msg);
-      }
+      // ✅ Share using share_plus
+      await Share.shareXFiles([XFile(file.path)], text: msg);
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('❌ WhatsApp share failed: $e')));
+        ).showSnackBar(SnackBar(content: Text('❌ Share failed: $e')));
       }
     }
-  }
-
-  // helper used above
-  // ✅ Web-style metrics handle both list and object types
-  String _metricCurrentAsString(Map<String, dynamic>? map, String key) {
-    if (map == null) return '';
-    final val = map[key];
-    if (val == null) return '';
-    if (val is List && val.isNotEmpty) return val[0]?.toString() ?? '';
-    if (val is Map) {
-      if (val.containsKey('current')) return val['current'].toString();
-      if (val.containsKey('Current')) return val['Current'].toString();
-    }
-    return val.toString();
-  }
-
-  Future<void> _saveFieldToServer() async {
-    if (farmer == null) return;
-    setState(() => _saving = true);
-
-    try {
-      final farmerId = farmer!['id'];
-      if (farmerId == null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Farmer ID not found.')));
-        setState(() => _saving = false);
-        return;
-      }
-
-      final result = await ApiService.updateFarmerAnalysis(
-        farmerId: farmerId,
-        cropId: farmer?['cropp'] ?? 0,
-        irrigationMethodId: farmer?['irrigationn_method'] ?? 0,
-        waterUsageInMm:
-            double.tryParse(_waterUsageMmController.text.trim()) ?? 0,
-        landSize: farmer?['land_size']?.toString() ?? "1",
-        waterUsageInLtr:
-            double.tryParse(farmer?['water_usage_in_ltr']?.toString() ?? "0") ??
-            0,
-        irrigationEfficiency:
-            double.tryParse(_irrigationEffController.text.trim()) ?? 0,
-        totalYield: double.tryParse(_totalYieldController.text.trim()) ?? 0,
-        salePricePerUnit:
-            double.tryParse(_salePriceController.text.trim()) ?? 0,
-        farmGatePrice:
-            double.tryParse(_farmGatePriceController.text.trim()) ?? 0,
-        totalValue:
-            double.tryParse(
-              _netIncomeChangeController.text.trim().replaceAll('%', ''),
-            ) ??
-            0,
-        machineryIds:
-            (farmer?['machinery_id'] != null &&
-                farmer!['machinery_id'].toString().isNotEmpty)
-            ? farmer!['machinery_id']
-                  .toString()
-                  .split(',')
-                  .map((e) => int.tryParse(e.trim()) ?? 0)
-                  .where((e) => e > 0)
-                  .toList()
-            : [],
-      );
-
-      if (result['ok'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'Analysis updated successfully'),
-          ),
-        );
-
-        // ✅ Optimistically update local UI
-        setState(() {
-          void updateMetric(String key, String newVal) {
-            if (metrics == null) metrics = {};
-            if (metrics![key] == null) {
-              metrics![key] = [newVal, '-', '-', '-'];
-            } else {
-              (metrics![key] as List)[0] = newVal;
-            }
-          }
-
-          updateMetric(
-            'Intercropping Income (10% of the main crop) (₹/acre)',
-            _intercroppingIncomeController.text.trim(),
-          );
-          updateMetric(
-            'Total Input Cost Reduction %',
-            _inputCostReductionController.text.trim(),
-          );
-          updateMetric(
-            'Net Income Change %',
-            _netIncomeChangeController.text.trim(),
-          );
-
-          farmer!['total_yield'] = _totalYieldController.text.trim();
-          farmer!['price_per_kg'] = _salePriceController.text.trim();
-          farmer!['farm_gate_price'] = _farmGatePriceController.text.trim();
-          farmer!['irrigation_efficiency'] = _irrigationEffController.text
-              .trim();
-          farmer!['water_usage_in_mm'] = _waterUsageMmController.text.trim();
-        });
-
-        // Refresh data
-        await _fetch();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['message'] ?? 'Failed to update')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error saving: $e')));
-    }
-
-    setState(() => _saving = false);
-  }
-
-  // ✅ Auto recalc all dependent metrics instantly (like web)
-  void _recalculateDerivedMetrics() {
-    if (metrics == null) return;
-
-    double yield = double.tryParse(_totalYieldController.text) ?? 0;
-    double pricePerKg = double.tryParse(_salePriceController.text) ?? 0;
-    double labourCost = _getMetricValue('Labour & Ops Cost (₹/acre)');
-    double inputCost = _getMetricValue('Input cost (except labour)');
-    double prevTotalInput = _getMetricValue(
-      'Total Input Cost (inclusive inputs and labour) (₹/acre)',
-    );
-
-    // Calculations
-    double grossIncome = yield * pricePerKg;
-    double intercroppingIncome = grossIncome * 0.10;
-    double totalGrossIncome = grossIncome + intercroppingIncome;
-    double totalInputCost = labourCost + inputCost;
-    double netIncome = totalGrossIncome - totalInputCost;
-
-    // Percent reduction vs previous
-    double reductionPercent = 0;
-    if (prevTotalInput > 0) {
-      reductionPercent =
-          ((prevTotalInput - totalInputCost) / prevTotalInput) * 100;
-    }
-
-    // Update metrics instantly
-    void setMetric(String name, dynamic val) {
-      if (metrics![name] == null)
-        metrics![name] = [val, '-', '-', '-'];
-      else
-        (metrics![name] as List)[0] = val;
-    }
-
-    setState(() {
-      setMetric(
-        'Gross Income (Main Crop) (₹/acre)',
-        grossIncome.toStringAsFixed(2),
-      );
-      setMetric(
-        'Intercropping Income (10% of the main crop) (₹/acre)',
-        intercroppingIncome.toStringAsFixed(2),
-      );
-      setMetric(
-        'Total Gross Income (₹/acre)',
-        totalGrossIncome.toStringAsFixed(2),
-      );
-      setMetric(
-        'Total Input Cost (inclusive inputs and labour) (₹/acre)',
-        totalInputCost.toStringAsFixed(2),
-      );
-      setMetric(
-        'Total Input Cost Reduction %',
-        '${reductionPercent.toStringAsFixed(2)}%',
-      );
-      setMetric('Net Income (₹/acre)', netIncome.toStringAsFixed(2));
-    });
-  }
-
-  // helper to get current numeric value of a metric
-  double _getMetricValue(String key) {
-    try {
-      final val = metrics?[key];
-      if (val is List && val.isNotEmpty) {
-        return double.tryParse(
-              val[0].toString().replaceAll(RegExp(r'[^\d\.\-]'), ''),
-            ) ??
-            0;
-      }
-    } catch (_) {}
-    return 0;
-  }
-
-  void _showEditDialog({
-    required String title,
-    required TextEditingController controller,
-    required int farmerId,
-  }) {
-    final editableMetrics = [
-      'Intercropping Income (10% of the main crop) (₹/acre)',
-      'Total Input Cost Reduction %',
-      'Net Income Change %',
-      'Water Use Reduction (%)',
-    ];
-
-    if (!editableMetrics.contains(title)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This field is not editable.')),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Edit $title'),
-          content: TextField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              hintText: 'Enter new value',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final newValue = controller.text.trim();
-                if (newValue.isEmpty) return;
-                Navigator.pop(context);
-
-                // ✅ Update locally first
-                setState(() {
-                  if (metrics == null) metrics = {};
-                  if (metrics![title] == null) {
-                    metrics![title] = [newValue, '-', '-', '-'];
-                  } else {
-                    (metrics![title] as List)[0] = newValue;
-                  }
-                });
-
-                // ✅ Send to server using existing method
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('Saving...')));
-
-                // Assign controller values properly
-                if (title ==
-                    'Intercropping Income (10% of the main crop) (₹/acre)') {
-                  _intercroppingIncomeController.text = newValue;
-                } else if (title == 'Total Input Cost Reduction %') {
-                  _inputCostReductionController.text = newValue;
-                } else if (title == 'Net Income Change %') {
-                  _netIncomeChangeController.text = newValue;
-                } else if (title == 'Water Use Reduction (%)') {
-                  // optional future metric
-                }
-
-                await _saveFieldToServer();
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('✅ $title updated successfully!')),
-                );
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // Small helper to display numeric with rupee if needed
-  String _formatAny(dynamic v) {
-    if (v == null) return '-';
-    if (v is num) return '₹${v.toStringAsFixed(2)}';
-    if (v.toString().contains('₹')) return v.toString();
-    return v.toString();
-  }
-
-  // ✅ Convert numeric string or null safely to double
-  double _toDouble(dynamic v) {
-    if (v == null) return 0;
-    if (v is num) return v.toDouble();
-    return double.tryParse(v.toString().replaceAll(RegExp(r'[^\d\.\-]'), '')) ??
-        0;
   }
 
   // Build line chart (fl_chart)
@@ -873,6 +746,18 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         .entries
         .map((e) => FlSpot(e.key.toDouble(), e.value))
         .toList();
+
+    double minVal = vals.reduce((a, b) => a < b ? a : b);
+    double maxVal = vals.reduce((a, b) => a > b ? a : b);
+    double range = maxVal - minVal;
+
+    // prevent zero range issue
+    if (range == 0) {
+      range = maxVal == 0 ? 10 : maxVal.abs() * 0.2;
+    }
+
+    double interval = range / 4;
+
     return Card(
       margin: const EdgeInsets.all(8),
       elevation: 2,
@@ -880,17 +765,51 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         child: Column(
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            AutoText(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 10),
             SizedBox(
               height: 180,
               child: LineChart(
                 LineChartData(
-                  gridData: FlGridData(show: true),
+                  minY: minVal - interval,
+                  maxY: maxVal + interval,
+
+                  gridData: FlGridData(
+                    show: true,
+                    horizontalInterval: interval,
+                    drawVerticalLine: false,
+                  ),
+
                   titlesData: FlTitlesData(
+                    topTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 55,
+                        interval: interval,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            value.toInt().toString(), // full number
+                            style: const TextStyle(fontSize: 10),
+                          );
+                        },
+                      ),
+                    ),
+
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
+                        interval: 1,
                         getTitlesWidget: (v, meta) {
                           final labels = [
                             'Current',
@@ -898,22 +817,24 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                             'Year 2',
                             'Year 3',
                           ];
-                          final idx = v.toInt();
-                          return Text(
-                            labels[idx < labels.length ? idx : 0],
-                            style: const TextStyle(fontSize: 10),
-                          );
+
+                          if (v.toInt() >= 0 && v.toInt() < labels.length) {
+                            return SideTitleWidget(
+                              meta: meta,
+                              child: AutoText(
+                                labels[v.toInt()],
+                                style: const TextStyle(fontSize: 10),
+                              ),
+                            );
+                          }
+                          return const SizedBox();
                         },
                       ),
                     ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                      ),
-                    ),
                   ),
+
                   borderData: FlBorderData(show: true),
+
                   lineBarsData: [
                     LineChartBarData(
                       spots: spots,
@@ -936,30 +857,333 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
     );
   }
 
-  Widget _farmerHeaderSection() {
+  Widget _greetingSection() {
     return Card(
-      elevation: 3,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      elevation: 2,
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            AutoText(
+              "Namaste ${farmer?['name'] ?? 'Farmer'},",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const AutoText(
+              "Thank you for your hard work for your land and family. "
+              "Our Vasudha tool shows you the rewards your dedication will bring "
+              "when you choose sustainable farming.",
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            AutoText(
+              "This is a picture of the journey ahead for your farm in the "
+              "${metrics?['Season']?[0] ?? ''} season.",
+              style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _rewardSection() {
+    final netIncomeArr = _toList(metrics?['Net Income (₹/acre)'] ?? []);
+    final yieldArr = _toList(metrics?['Yield (kg/acre)'] ?? []);
+    final percArr = _toList(metrics?['Net Income Change (%)'] ?? []);
+
+    if (netIncomeArr.length < 4) return const SizedBox();
+
+    return Card(
+      margin: const EdgeInsets.all(12),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const AutoText(
+              "The Rewards for Your Family",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            const AutoText(
+              "Your dedication to sustainable farming will make your land stronger and increase your income. "
+              "This will bring more security and a better future for your family.",
+              style: TextStyle(fontSize: 14),
+            ),
+
+            const SizedBox(height: 16),
+            AutoText(
+              "In the first season of change, your Net Income is set to be "
+              "₹${netIncomeArr[1].toStringAsFixed(2)} per acre. "
+              "This is a big step forward, with a ${percArr[1].toStringAsFixed(2)}% increase from your current earnings. "
+              "We'll see a small dip in your yield to ${yieldArr[1]} kg/acre, but your costs for expensive chemicals drop, "
+              "and you will get a better price for your good quality crop.",
+            ),
+            const SizedBox(height: 12),
+            AutoText(
+              "By the second season, your efforts will truly show. Your net income will grow to "
+              "₹${netIncomeArr[2].toStringAsFixed(2)} per acre, a wonderful ${percArr[2].toStringAsFixed(2)}% increase from today. "
+              "Your land will have healed, bringing your yield back up to a strong ${yieldArr[2]} kg/acre.",
+            ),
+            const SizedBox(height: 12),
+            AutoText(
+              "By the third season, your farm will be thriving! We expect your net income to reach "
+              "₹${netIncomeArr[3].toStringAsFixed(2)} per acre, a stunning ${percArr[3].toStringAsFixed(2)}% jump. "
+              "Your land will be giving you its best, with a yield of ${yieldArr[3]} kg/acre "
+              "and the highest price for your trusted produce.",
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _environmentSection() {
+    final waterSavedArr = environmental?['Water Saved per acre'] ?? [];
+    final waterRequirementArr =
+        environmental?['Water Requirement (liters) per acre'] ?? [];
+    final socArr =
+        soilHealth?['Soil Organic Carbon (SOC) Gain (kg/acre)'] ?? [];
+    final co2Arr = _toList(climateChange?['CO₂e Sequestered (kg/acre)'] ?? []);
+
+    double waterSaved = _extractNumber(waterSavedArr[1]);
+    double waterRequired = _extractNumber(waterRequirementArr[1]);
+    double soc = double.tryParse(socArr[3].toString()) ?? 0;
+    double co2 = co2Arr[3];
+
+    int familyYears = (waterSaved / 5840).floor();
+    int carDistance = (co2 / 0.12).floor();
+
+    return Card(
+      margin: const EdgeInsets.all(12),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const AutoText(
+              "The Health of Your Land and Our Earth",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const SizedBox(height: 12),
+            const AutoText(
+              "Your hard work helps your family and also makes your land stronger. "
+              "It makes our planet healthier.",
+              style: TextStyle(fontSize: 14),
+            ),
+
+            const SizedBox(height: 16),
+
+            if (waterSaved > 0 && waterRequired > 0)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const AutoText(
+                    "Water: ",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  Expanded(
+                    child: AutoText(
+                      "Your farm will save ${waterSaved.toStringAsFixed(0)} liters of water each season. "
+                      "This is enough drinking water for a family of four for over $familyYears years. "
+                      "Your total water requirement will be ${waterRequired.toStringAsFixed(0)} liters per acre.",
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+
+            const SizedBox(height: 12),
+
+            if (soc > 0)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const AutoText(
+                    "Soil Health: ",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  Expanded(
+                    child: AutoText(
+                      "You are giving life back to your soil. By the end of the transition, "
+                      "your soil will have gained a total of ${soc.toStringAsFixed(0)} kg/acre of rich soil organic carbon, "
+                      "making it fertile for generations to come.",
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+
+            const SizedBox(height: 12),
+
+            if (co2 > 0)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const AutoText(
+                    "Climate Change Mitigation: ",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  Expanded(
+                    child: AutoText(
+                      "Your farm will become a friend to the earth. "
+                      "By the third season, your farm will capture a total of ${co2.toStringAsFixed(0)} kg of CO₂ from the air. "
+                      "This is like removing the pollution from a car driving for approximately $carDistance kilometers.",
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget buildMetricSection(String title, Map<String, dynamic> data) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AutoText(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueGrey,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            /// MOBILE SCROLL
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columnSpacing: 14,
+                headingRowColor: MaterialStateProperty.all(
+                  Colors.grey.shade300,
+                ),
+                columns: const [
+                  DataColumn(label: AutoText("Metric")),
+                  DataColumn(label: AutoText("Current")),
+                  DataColumn(label: AutoText("Year 1")),
+                  DataColumn(label: AutoText("Year 2")),
+                  DataColumn(label: AutoText("Year 3")),
+                ],
+
+                rows: data.entries.map((entry) {
+                  List vals = entry.value is List ? entry.value : [entry.value];
+
+                  String format(val) {
+                    final rupeeFields = [
+                      "Intercropping Income",
+                      "Agricultural Input cost",
+                      "Total Input Cost",
+                      "Gross Income",
+                      "Net Income",
+                      "Labour and machinery cost",
+                      "Price per KG",
+                    ];
+
+                    final percentFields = ["Change", "Reduction"];
+
+                    if (percentFields.any((f) => entry.key.contains(f))) {
+                      return "${val ?? 0}%";
+                    }
+
+                    if (rupeeFields.any((f) => entry.key.contains(f))) {
+                      return "₹${val ?? 0}";
+                    }
+
+                    return val.toString();
+                  }
+
+                  Color getColor(val) {
+                    double numVal = double.tryParse(val.toString()) ?? 0;
+                    if (entry.key.contains("Net Income")) {
+                      return numVal < 0 ? Colors.red : Colors.green;
+                    }
+                    if (entry.key.contains("Change")) {
+                      return numVal < 0 ? Colors.red : Colors.green;
+                    }
+                    return Colors.black87;
+                  }
+
+                  return DataRow(
+                    cells: [
+                      DataCell(
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minWidth: 200,
+                            maxWidth: 260,
+                          ),
+                          child: AutoText(entry.key, softWrap: true),
+                        ),
+                      ),
+
+                      for (int i = 0; i < 4; i++)
+                        DataCell(
+                          AutoText(
+                            format(i < vals.length ? vals[i] : 0),
+                            style: TextStyle(
+                              color: getColor(i < vals.length ? vals[i] : 0),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _farmerHeaderSection() {
+    final name = farmer?['name'] ?? 'N/A';
+    final phone = farmer?['phone'] ?? '-';
+    final state = farmer?['state'] ?? '-';
+    final district = farmer?['district'] ?? '-';
+
+    return Card(
+      elevation: 4,
+      margin: const EdgeInsets.all(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            /// 👤 Farmer Image
             CircleAvatar(
               radius: 40,
               backgroundImage:
-                  (farmer?['profile_image'] != null &&
-                      farmer!['profile_image'].toString().isNotEmpty)
-                  ? NetworkImage(
-                      'https://vasudha.app/${farmer!['profile_image']}',
-                    )
+                  (profileImageUrl != null && profileImageUrl!.isNotEmpty)
+                  ? NetworkImage(profileImageUrl!)
                   : const AssetImage('assets/logo.png') as ImageProvider,
             ),
+
             const SizedBox(width: 12),
+
+            /// 📄 Farmer Details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    farmer?['name'] ?? 'N/A',
+                  AutoText(
+                    name,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -967,32 +1191,39 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Text('📞 ${farmer?['phone'] ?? '-'}'),
-                  Text(
-                    '🌍 ${farmer?['state'] ?? '-'} , ${farmer?['district'] ?? '-'}',
+
+                  AutoText('📞 $phone'),
+
+                  /// 🌍 Location (State + District safely)
+                  AutoText(
+                    '🌍 ${state != '-' ? state : ''}'
+                    '${(state != '-' && district != '-') ? ', ' : ''}'
+                    '${district != '-' ? district : ''}'
+                    '${(state == '-' && district == '-') ? '-' : ''}',
                   ),
-                  Text('Plot ID: ${farmer?['plot_id'] ?? '-'}'),
                 ],
               ),
             ),
+
+            /// 📤 Buttons
             SizedBox(
-              width: 140,
+              width: 130,
               child: Column(
                 children: [
                   ElevatedButton.icon(
                     onPressed: _shareOnWhatsApp,
-                    icon: const Icon(FontAwesomeIcons.whatsapp),
-                    label: const Text('Share'),
+                    icon: const Icon(Icons.share),
+                    label: const AutoText('Share'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
                     ),
                   ),
-
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: _exportToPdf,
                     icon: const Icon(Icons.picture_as_pdf),
-                    label: const Text('Export'),
+                    label: const AutoText('Export'),
                   ),
                 ],
               ),
@@ -1083,7 +1314,10 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         child: Column(
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            AutoText(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 10),
             SizedBox(
               height: 180,
@@ -1109,7 +1343,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                             'Year 3',
                           ];
                           final idx = v.toInt();
-                          return Text(
+                          return AutoText(
                             labels[idx < labels.length ? idx : 0],
                             style: const TextStyle(fontSize: 10),
                           );
@@ -1117,7 +1351,21 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                       ),
                     ),
                     leftTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: true),
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 55,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            value
+                                .toInt()
+                                .toString(), // ✅ 100000 instead of 100K
+                            style: const TextStyle(fontSize: 10),
+                          );
+                        },
+                      ),
                     ),
                   ),
                   gridData: FlGridData(show: true),
@@ -1140,42 +1388,24 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     // Chart arrays
-    final yieldArr = _toList(
-      metrics?['Yield (kg/acre)'] ?? metrics?['Yield'] ?? 0,
-    );
-    final priceArr = _toList(
-      metrics?['Price per KG (₹)'] ?? metrics?['Price per KG'] ?? 0,
-    );
-    // net income might not exist in metrics (your sample didn't include - web had it); attempt to compute or fall back
-    final netIncomeArr = _toList(
-      metrics?['Net Income (₹/acre)'] ?? metrics?['Net Income'] ?? [0, 0, 0, 0],
-    );
+    final yieldArr = _toList(metrics?['Yield (kg/acre)'] ?? []);
+    final priceArr = _toList(metrics?['Price per KG (₹)'] ?? []);
+    final netIncomeArr = _toList(metrics?['Net Income (₹/acre)'] ?? []);
 
-    final waterSavedRaw =
-        environmental?['Water Saved per acre'] ??
-        environmental?['Water Saved (liters/acre)'] ??
-        environmental?['Water Saved (liters)'] ??
-        environmental?['Water Saved'];
-
-    List<double> waterSavedArr = [];
-    if (waterSavedRaw is num)
-      waterSavedArr = [
-        0,
-        waterSavedRaw.toDouble(),
-        waterSavedRaw.toDouble(),
-        waterSavedRaw.toDouble(),
-      ];
-    else
-      waterSavedArr = _toList(waterSavedRaw);
-
+    final waterSavedArr = _toList(environmental?['Water Saved per acre'] ?? []);
     final socArr = _toList(
-      soilHealth?['Soil Organic Carbon (SOC) Gain (kg/acre)'],
+      soilHealth?['Soil Organic Carbon (SOC) Gain (kg/acre)'] ?? [],
     );
-    final co2Arr = _toList(climateChange?['CO₂e Sequestered (kg/acre)']);
+    final co2Arr = _toList(climateChange?['CO₂e Sequestered (kg/acre)'] ?? []);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Farmer Impact Dashboard - ${farmer?['name'] ?? ''}'),
+        title: AutoText(
+          'Farmer Impact Dashboard - ${farmer?['name'] ?? ''}', // yahan text
+          style: TextStyle(
+            fontSize: 16.0, // desired chhota size
+          ),
+        ),
         backgroundColor: Colors.green,
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _fetch),
@@ -1192,70 +1422,10 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
           child: Column(
             children: [
               // Farmer Card
-              Card(
-                elevation: 3,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundImage:
-                            (farmer?['profile_image'] != null &&
-                                farmer!['profile_image'].toString().isNotEmpty)
-                            ? NetworkImage(
-                                'https://vasudha.app/${farmer!['profile_image']}',
-                              )
-                            : const AssetImage('assets/logo.png')
-                                  as ImageProvider,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              farmer?['name'] ?? 'N/A',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text('📞 ${farmer?['phone'] ?? '-'}'),
-                            Text(
-                              '🌍 ${farmer?['state'] ?? '-'} , ${farmer?['district'] ?? '-'}',
-                            ),
-                            Text('Plot ID: ${farmer?['plot_id'] ?? '-'}'),
-                          ],
-                        ),
-                      ),
-                      SizedBox(
-                        width: 140,
-                        child: Column(
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: _shareOnWhatsApp,
-                              icon: const Icon(FontAwesomeIcons.whatsapp),
-                              label: const Text('Share'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            ElevatedButton.icon(
-                              onPressed: _exportToPdf,
-                              icon: const Icon(Icons.picture_as_pdf),
-                              label: const Text('Export'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              _farmerHeaderSection(),
+              _greetingSection(),
+              _rewardSection(),
+              _environmentSection(),
 
               // Charts group (3 on top row)
               Wrap(
@@ -1316,34 +1486,15 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
               // ✅ Replace old metric blocks with new editable table layout
               const SizedBox(height: 8),
 
-              buildEditableTable(
-                title: "Farmer Metrics",
-                data: metrics ?? {},
-                isEditable: true,
-              ),
-              buildEditableTable(
-                title: "Environmental Metrics",
-                data: environmental ?? {},
-                isEditable: true,
-              ),
-              buildEditableTable(
-                title: "Soil Health",
-                data: soilHealth ?? {},
-                isEditable: false,
-              ),
-              buildEditableTable(
-                title: "Climate Change Mitigation",
-                data: climateChange ?? {},
-                isEditable: false,
+              buildMetricSection("Farmer Metrics", metrics ?? {}),
+              buildMetricSection("Environmental Metrics", environmental ?? {}),
+              buildMetricSection("Soil Health", soilHealth ?? {}),
+              buildMetricSection(
+                "Climate Change Mitigation",
+                climateChange ?? {},
               ),
 
               const SizedBox(height: 40),
-              Center(
-                child: Text(
-                  'Tip: Double-tap a cell to edit & auto-save',
-                  style: TextStyle(color: Colors.grey[700]),
-                ),
-              ),
               const SizedBox(height: 30),
             ],
           ),
@@ -1356,7 +1507,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        AutoText(
           label,
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         ),
@@ -1368,6 +1519,11 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         ),
       ],
     );
+  }
+
+  double _extractNumber(String value) {
+    final cleaned = value.replaceAll(RegExp(r'[^0-9.]'), '');
+    return double.tryParse(cleaned) ?? 0;
   }
 
   // ✅ Helper to safely convert any dynamic input into a 4-length List<double>
@@ -1439,116 +1595,5 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       if (parsed != null) return [parsed, parsed, parsed, parsed];
     } catch (_) {}
     return zeros;
-  }
-
-  // ✅ Common editable table for each metric category
-  Widget buildEditableTable({
-    required String title,
-    required Map<String, dynamic> data,
-    required bool isEditable,
-  }) {
-    if (data.isEmpty) return const SizedBox.shrink();
-
-    // detect how many columns (years) we need dynamically
-    int maxCols = 0;
-    for (var v in data.values) {
-      if (v is List && v.length > maxCols) maxCols = v.length;
-    }
-    if (maxCols == 0) maxCols = 1;
-
-    final columns = [
-      'Current',
-      ...List.generate(maxCols - 1, (i) => 'Year ${i + 1}'),
-    ];
-
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-                color: Colors.green,
-              ),
-            ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowColor: MaterialStateProperty.all(
-                  Colors.green.shade100,
-                ),
-                border: TableBorder.all(color: Colors.grey.shade300),
-                columns: [
-                  const DataColumn(label: Text('Metric')),
-                  ...columns.map((c) => DataColumn(label: Text(c))),
-                ],
-                rows: data.entries.map((entry) {
-                  final metric = entry.key;
-                  final vals = entry.value;
-                  final List<dynamic> cells = vals is List ? vals : [vals];
-
-                  return DataRow(
-                    cells: [
-                      DataCell(
-                        Text(
-                          metric,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      ...List.generate(columns.length, (i) {
-                        final v = (i < cells.length)
-                            ? cells[i].toString()
-                            : '-';
-
-                        // ✅ Only allow double-tap edit for these specific metrics
-                        final editableMetrics = [
-                          'Intercropping Income (10% of the main crop) (₹/acre)',
-                          'Total Input Cost Reduction %',
-                          'Net Income Change %',
-                          'Water Use Reduction (%)',
-                        ];
-
-                        final canEdit =
-                            isEditable &&
-                            i == 0 &&
-                            editableMetrics.contains(metric);
-
-                        return DataCell(
-                          canEdit
-                              ? GestureDetector(
-                                  onDoubleTap: () => _showEditDialog(
-                                    title: metric,
-                                    controller: TextEditingController(text: v),
-                                    farmerId: widget
-                                        .farmerId, // ✅ use farmerId from widget
-                                  ),
-
-                                  child: Text(
-                                    v,
-                                    style: const TextStyle(
-                                      color: Colors.blue,
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                  ),
-                                )
-                              : Text(v),
-                        );
-                      }),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

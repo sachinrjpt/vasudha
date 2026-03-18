@@ -4,10 +4,19 @@ import '../widgets/custom_header.dart';
 import '../utils/constants.dart';
 import 'farmer_registration_screen.dart';
 import 'krishi_sakhi_screen.dart';
-import 'farmer_analysis_screen.dart'; // ✅ new import
+import 'farmer_analysis_screen.dart';
+import 'advisory_screen.dart';
+import 'search_crop_videos_screen.dart';
+import 'weather_dashboard_screen.dart';
+import 'farmers_harvest_screen.dart';
+import 'dashboard_content.dart';
+import 'kssales_pad.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final String userType;
+  final Map<String, dynamic>? userData; // Farmer profile
+
+  const DashboardScreen({super.key, required this.userType, this.userData});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -16,28 +25,88 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  Widget _selectedContent = const Center(
-    child: Text(
-      "Main Content Area",
-      style: TextStyle(fontSize: 20),
-    ),
-  );
+  late Widget _selectedContent;
+
+  @override
+  void initState() {
+    super.initState();
+
+    /// Default screen based on user role
+    _selectedContent = DashboardContent(userType: widget.userType);
+  }
 
   void _onMenuSelected(String title) {
     setState(() {
-      if (title == "Registration") {
-        _selectedContent = const RegistrationForm();
-      } else if (title == "Dashboard") {
-        _selectedContent = const Center(
-          child: Text(
-            "Main Content Area",
-            style: TextStyle(fontSize: 20),
-          ),
-        );
-      } else if (title == "Farmer Lists") {
-        _selectedContent = const KrishiSakhiScreen();
-      } else if (title == "Farmer Analysis List") {
-        _selectedContent = FarmerAnalysisScreen(); // ✅ yahan screen load
+      /// =========================
+      /// 👩‍🌾 FARMER ACCESS
+      /// =========================
+      if (widget.userType == "farmer") {
+        switch (title) {
+          case "Dashboard":
+            _selectedContent = DashboardContent(
+              userType: widget.userType,
+            ); // shows notifications + weather
+            break;
+          case "Weather Dashboard": // <-- sidebar label ke saath match
+            _selectedContent = const WeatherDashboardScreen();
+            break;
+
+          case "Advisory":
+            _selectedContent = const AdvisoryScreen();
+            break;
+
+          case "Video":
+            _selectedContent = const SearchCropVideosScreen();
+            break;
+
+          default:
+            _selectedContent = const WeatherDashboardScreen();
+        }
+      }
+      /// =========================
+      /// 👩‍💼 EMPLOYEE ACCESS
+      /// =========================
+      else {
+        switch (title) {
+          case "Dashboard":
+            _selectedContent = DashboardContent(userType: widget.userType);
+            break;
+
+          case "Registration":
+            _selectedContent = const RegistrationForm();
+            break;
+
+          case "Farmer Lists":
+            _selectedContent = const KrishiSakhiScreen();
+            break;
+
+          case "Farmer Analysis List":
+            _selectedContent = FarmerAnalysisScreen();
+            break;
+
+          case "Advisory":
+            _selectedContent = const AdvisoryScreen();
+            break;
+
+          case "KS Sales Pad":
+            _selectedContent = const KSSalesPad();
+            break;
+
+          case "Video Library":
+            _selectedContent = const SearchCropVideosScreen();
+            break;
+
+          case "Weather Dashboard":
+            _selectedContent = const WeatherDashboardScreen();
+            break;
+
+          case "Harvest Audit":
+            _selectedContent = const FarmersHarvestScreen();
+            break;
+
+          default:
+            _selectedContent = DashboardContent(userType: widget.userType);
+        }
       }
     });
   }
@@ -51,6 +120,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       drawer: !isDesktop
           ? CustomSidebar(
               isDesktop: isDesktop,
+              userType: widget.userType,
               onMenuSelected: _onMenuSelected,
             )
           : null,
@@ -59,6 +129,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (isDesktop)
             CustomSidebar(
               isDesktop: isDesktop,
+              userType: widget.userType,
               onMenuSelected: _onMenuSelected,
             ),
           Expanded(
@@ -66,12 +137,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 CustomHeader(
                   isDesktop: isDesktop,
+                  userType: widget.userType,
+                  userData: widget.userData, // farmer profile
                   onMenuPressed: () => _scaffoldKey.currentState!.openDrawer(),
                 ),
                 Expanded(child: _selectedContent),
               ],
             ),
-          )
+          ),
         ],
       ),
     );

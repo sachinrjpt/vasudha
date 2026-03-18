@@ -1,21 +1,25 @@
 import 'package:flutter/material.dart';
 import 'screens/farmer_registration_screen.dart';
+import '../widgets/auto_translate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vasudha/widgets/auto_text.dart';
 import 'utils/constants.dart';
 import 'screens/dashboard_screen.dart';
-import 'services/api_service.dart';   // ✅ import your API service
+import 'services/api_service.dart'; // ✅ import your API service
 import 'services/master_service.dart'; // ✅ add this import
+import 'package:provider/provider.dart';
+import 'providers/language_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 🔴 हर बार restart पर logout करने के लिए token clear कर दो
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.clear();
-
-  runApp(const VasudhaApp());
+  runApp(
+    MultiProvider(
+      providers: [ChangeNotifierProvider(create: (_) => LanguageProvider())],
+      child: const VasudhaApp(),
+    ),
+  );
 }
-
 
 class VasudhaApp extends StatelessWidget {
   const VasudhaApp({super.key});
@@ -26,7 +30,26 @@ class VasudhaApp extends StatelessWidget {
       title: 'Vasudha Login',
       debugShowCheckedModeBanner: false,
       theme: appTheme,
-      home: const LoginPage(), // ✅ Default page is Login
+      home: FutureBuilder(
+        future: SharedPreferences.getInstance(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          final prefs = snapshot.data!;
+          bool isLoggedIn = prefs.getBool("isLoggedIn") ?? false;
+          String userType = prefs.getString("userType") ?? "employee";
+
+          if (isLoggedIn) {
+            return DashboardScreen(userType: userType);
+          }
+
+          return const LoginPage();
+        },
+      ),
     );
   }
 }
@@ -50,7 +73,7 @@ class _LoginPageState extends State<LoginPage> {
 
     if (login.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter login and password")),
+        SnackBar(content: AutoText("Please enter login and password")),
       );
       return;
     }
@@ -62,24 +85,47 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => isLoading = false);
 
     if (res["ok"] == true) {
-  // ✅ Success
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(res["message"] ?? "Login successful")),
-  );
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool("isLoggedIn", true);
+      await prefs.setString("userType", res["user_type"] ?? "employee");
 
-  // 🔄 Load masters after login success
-  await MasterService.reload();
-
-  Navigator.pushReplacement(
-    context,
-    MaterialPageRoute(builder: (context) => const DashboardScreen()),
-  );
-}
- else {
-      // ❌ Error
+      if ((res["user_type"] ?? "").toString().toLowerCase() == "farmer") {
+        await prefs.setString("farmerName", res["user"]["name"] ?? "");
+        await prefs.setString("farmerEmail", res["user"]["email"] ?? "");
+        await prefs.setString("farmerPhone", res["user"]["phone"] ?? "");
+        await prefs.setString(
+          "farmerImage",
+          res["user"]["profile_image"] ?? "",
+        );
+      }
+      // ✅ Success
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res["message"] ?? "Login failed")),
+        SnackBar(content: Text(res["message"] ?? "Login successful")),
       );
+
+      // 🔄 Load masters after login success
+      await MasterService.reload();
+
+      String userType = (res["user_type"] ?? "employee")
+          .toString()
+          .toLowerCase();
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DashboardScreen(
+            userType: userType,
+            userData: userType == "farmer"
+                ? res["user"]
+                : null, // <-- pass farmer data
+          ),
+        ),
+      );
+    } else {
+      // ❌ Error
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(res["message"] ?? "Login failed")));
     }
   }
 
@@ -110,29 +156,26 @@ class _LoginPageState extends State<LoginPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 // Logo
-                Image.asset(
-                  'assets/logo.png',
-                  height: isWeb ? 100 : 80,
-                ),
+                Image.asset('assets/logo.png', height: isWeb ? 100 : 80),
                 const SizedBox(height: 8),
 
-                const Text(
+                AutoText(
                   "ઉથાન",
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
                 ),
-                const Text(
+                AutoText(
                   "Utthan",
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400),
                 ),
 
                 const SizedBox(height: 20),
 
-                const Text(
+                AutoText(
                   "Sign In",
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
-                Text(
+                AutoText(
                   "Please enter your details to sign in",
                   style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                 ),
@@ -143,7 +186,10 @@ class _LoginPageState extends State<LoginPage> {
                   controller: emailController,
                   decoration: InputDecoration(
                     labelText: "Email / Phone / Employee Id",
-                    prefixIcon: const Icon(Icons.person_outline, color: AppColors.primary),
+                    prefixIcon: const Icon(
+                      Icons.person_outline,
+                      color: AppColors.primary,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -157,10 +203,15 @@ class _LoginPageState extends State<LoginPage> {
                   obscureText: obscurePassword,
                   decoration: InputDecoration(
                     labelText: "Password",
-                    prefixIcon: const Icon(Icons.lock_outline, color: AppColors.primary),
+                    prefixIcon: const Icon(
+                      Icons.lock_outline,
+                      color: AppColors.primary,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
                         color: AppColors.primary,
                       ),
                       onPressed: () {
@@ -189,7 +240,7 @@ class _LoginPageState extends State<LoginPage> {
                     onPressed: isLoading ? null : _handleLogin,
                     child: isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
+                        : AutoText(
                             "Sign In",
                             style: TextStyle(fontSize: 16, color: Colors.white),
                           ),

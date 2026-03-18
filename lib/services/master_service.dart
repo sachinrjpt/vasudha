@@ -91,7 +91,7 @@ class MasterService {
       case 5: // Sprinkler
         efficiency =
             cropData["sprinkler_irrigation_efficiency_percent"]?.toString() ??
-                "";
+            "";
         totalLitres =
             cropData["sprinkler_irrigation_efficiency_75"]?.toString() ?? "";
         break;
